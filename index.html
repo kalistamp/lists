@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Daily Chore Tracker</title>
+    <link rel="stylesheet" href="/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div id="login-overlay">
+        <div class="login-box">
+            <h2><i class="fas fa-lock"></i> Secured Chores</h2>
+            <p>Enter password to access your lists.</p>
+            <input type="password" id="password-input" placeholder="Enter Password">
+            <button id="login-btn" class="btn">Unlock</button>
+            <p id="login-error" class="error-msg"></p>
+        </div>
+    </div>
+
+    <div id="settings-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(30, 41, 59, 0.8); justify-content: center; align-items: center; z-index: 2000;">
+        <div class="login-box" style="max-width: 400px;">
+            <h2><i class="fas fa-cog"></i> Cloud Sync Setup</h2>
+            <p style="font-size: 0.9rem; margin-bottom: 15px; color: var(--text-muted);">Enter your GitHub credentials to enable cloud syncing.</p>
+            
+            <div style="text-align: left; margin-bottom: 10px;">
+                <label style="font-size: 0.85rem; margin-bottom: 5px;">GitHub Personal Access Token (with 'gist' scope)</label>
+                <input type="password" id="github-token-input" placeholder="ghp_..." style="margin-top: 5px;">
+            </div>
+            
+            <div style="text-align: left; margin-bottom: 15px;">
+                <label style="font-size: 0.85rem; margin-bottom: 5px;">Gist ID</label>
+                <input type="text" id="gist-id-input" placeholder="e.g. a1b2c3d4e5f6..." style="margin-top: 5px;">
+            </div>
+            
+            <div style="display: flex; gap: 10px;">
+                <button class="btn" id="save-settings-btn" style="margin-top: 0;">Save & Sync</button>
+                <button class="btn" id="close-settings-btn" style="margin-top: 0; background-color: #94a3b8;">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="confirm-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(30, 41, 59, 0.8); justify-content: center; align-items: center; z-index: 3000;">
+        <div class="login-box" style="max-width: 350px;">
+            <h2 id="confirm-title" style="margin-bottom: 10px; color: var(--dark-color);">Are you sure?</h2>
+            <p id="confirm-message" style="font-size: 0.9rem; margin-bottom: 20px; color: var(--text-muted);"></p>
+            <div style="display: flex; gap: 10px; justify-content: center;">
+                <button class="btn" id="confirm-yes-btn" style="margin-top: 0; background-color: var(--expense-color);">Yes</button>
+                <button class="btn" id="confirm-no-btn" style="margin-top: 0; background-color: #94a3b8;">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="dashboard-wrapper" id="app-container" style="display: none;">
+        
+        <main class="main-content">
+            <header>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; gap: 15px;">
+                    <h1 style="margin-bottom: 0; text-align: left;">Daily Chore Tracker</h1>
+                    <button id="dark-mode-btn" class="dark-mode-toggle" aria-label="Toggle Dark Mode" style="position: static; flex-shrink: 0; margin: 0;">
+                        <i class="fas fa-moon"></i>
+                    </button>
+                </div>
+
+                <div class="date-container">
+                    <p id="current-date">Loading date...</p>
+                    <div class="progress-bg">
+                        <div id="month-progress" class="progress-fill"></div>
+                    </div>
+                    <p id="days-left" class="days-left-text">Loading...</p>
+                </div>
+
+                <div class="controls-container">
+                    <button class="btn-reset" onclick="resetMaintenance()">
+                        <i class="fas fa-sync-alt"></i> Reset Maintenance
+                    </button>
+                    <div style="display: flex; flex-direction: column; align-items: center; gap: 4px;">
+                        <button class="btn-reset" id="sync-btn" onclick="manualSync()">
+                            <i class="fas fa-cloud"></i> Cloud Sync
+                        </button>
+                        <span id="sync-timestamp" style="font-size: 0.75rem; color: #94a3b8; text-align: center;"></span>
+                    </div>
+                    <button class="btn-reset" onclick="openSettings()">
+                        <i class="fas fa-cog"></i> Setup Sync
+                    </button>
+                </div>
+            </header>
+
+            <section class="add-transaction">
+                <h3 id="form-title">Add New Chore</h3>
+                <form id="form">
+                    <div class="form-control">
+                        <label>Description</label>
+                        <input type="text" id="text" placeholder="e.g. Water plants" required>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-control flex-grow">
+                            <label>Type</label>
+                            <select id="type">
+                                <option value="daily">Daily Maintenance</option>
+                                <option value="errands">Errands & Shopping</option>
+                                <option value="oneoff">One-off Task</option>
+                            </select>
+                        </div>
+                    </div>
+                    <button class="btn" id="submit-btn" type="submit">Add Chore</button>
+                </form>
+            </section>
+
+            <section id="section-daily" class="period-section" style="display: none;">
+                <div class="period-header">
+                    <h3>Daily Maintenance</h3>
+                </div>
+                <ul id="list-daily" class="list"></ul>
+            </section>
+
+            <section id="section-errands" class="period-section" style="display: none;">
+                <div class="period-header">
+                    <h3>Errands & Shopping</h3>
+                </div>
+                <ul id="list-errands" class="list"></ul>
+            </section>
+
+            <section id="section-oneoff" class="period-section" style="display: none;">
+                <div class="period-header">
+                    <h3>One-off Tasks</h3>
+                </div>
+                <ul id="list-oneoff" class="list"></ul>
+            </section>
+        </main>
+
+        <aside class="ledger-sidebar">
+            <div class="notes-section" style="margin-top: 0; border-top: none; padding-top: 0; margin-bottom: 20px;">
+                <div class="ledger-header">
+                    <h3><i class="fas fa-sticky-note"></i> Chore Notes</h3>
+                    <small>Auto-saves as you type</small>
+                </div>
+                <textarea id="notes-area" placeholder="Notes, supplies needed..."></textarea>
+            </div>
+        </aside>
+
+    </div>
+    <script type="module" src="/script.js"></script>
+</body>
+</html>
