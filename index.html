@@ -6,7 +6,7 @@
     <title>Daily Chore Tracker</title>
     <link rel="stylesheet" href="./style.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
-    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 </head>
 <body>
     <div id="login-overlay">
@@ -104,21 +104,21 @@
                 </form>
             </section>
 
-            <section id="section-daily" class="period-section" style="display: none;">
+            <section id="section-daily" class="period-section section-daily-bg" style="display: none;">
                 <div class="period-header">
                     <h3>Daily Maintenance</h3>
                 </div>
                 <ul id="list-daily" class="list"></ul>
             </section>
 
-            <section id="section-errands" class="period-section" style="display: none;">
+            <section id="section-errands" class="period-section section-errands-bg" style="display: none;">
                 <div class="period-header">
                     <h3>Errands & Shopping</h3>
                 </div>
                 <ul id="list-errands" class="list"></ul>
             </section>
 
-            <section id="section-oneoff" class="period-section" style="display: none;">
+            <section id="section-oneoff" class="period-section section-oneoff-bg" style="display: none;">
                 <div class="period-header">
                     <h3>One-off Tasks</h3>
                 </div>
@@ -126,6 +126,7 @@
             </section>
         </main>
 
+        <!-- Desktop sidebar -->
         <aside class="ledger-sidebar">
             <div class="notes-section" style="margin-top: 0; border-top: none; padding-top: 0; margin-bottom: 20px;">
                 <div class="ledger-header">
@@ -136,6 +137,11 @@
             </div>
         </aside>
     </div>
+
+    <!-- Mobile floating notes button -->
+    <button id="notes-fab" aria-label="Toggle Notes" title="Notes">
+        <i class="fas fa-sticky-note"></i>
+    </button>
 
     <script type="module" src="./script.js"></script>
 </body>
