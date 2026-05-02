@@ -1,4 +1,4 @@
-const MY_PASSWORD = "p"; 
+const MY_PASSWORD = "p";
 const GIST_FILENAME = "chore-data.json";
 
 let GITHUB_TOKEN = localStorage.getItem('githubToken') || "";
@@ -57,11 +57,11 @@ passInput.addEventListener('keydown', e => { if (e.key === 'Enter') checkPwd(); 
 function updateDateAndProgress() {
     const now = new Date();
     document.getElementById('current-date').innerText = now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
-    
+
     const total = chores.length;
     const completed = chores.filter(c => c.completed).length;
     const percentage = total === 0 ? 0 : (completed / total) * 100;
-    
+
     progressFill.style.width = `${percentage}%`;
     daysLeftText.innerText = `${completed} out of ${total} tasks complete`;
 }
@@ -86,7 +86,8 @@ form.addEventListener('submit', (e) => {
         chores.push({ ...newChore, id: Math.floor(Math.random() * 10000000) });
     }
 
-    textInput.value = ''; typeInput.value = 'daily';
+    textInput.value = '';
+    typeInput.value = 'daily';
     updateLocalAndGist();
     renderUI();
 });
@@ -100,8 +101,8 @@ window.toggleChore = (id) => {
 window.editChore = (id) => {
     const chore = chores.find(c => c.id === id);
     if (!chore) return;
-    textInput.value = chore.text; typeInput.value = chore.type;
-    
+    textInput.value = chore.text;
+    typeInput.value = chore.type;
     editState = { isEditing: true, id };
     formTitle.innerText = 'Edit Chore';
     submitBtn.innerText = 'Update Chore';
@@ -145,8 +146,49 @@ window.resetMaintenance = () => {
     });
 };
 
+window.openSettings = () => {
+    document.getElementById('github-token-input').value = GITHUB_TOKEN;
+    document.getElementById('gist-id-input').value = GIST_ID;
+    document.getElementById('settings-modal').style.display = 'flex';
+};
+
+window.manualSync = async () => {
+    const btn = document.getElementById('sync-btn');
+    if (!GITHUB_TOKEN || !GIST_ID) {
+        if (btn) btn.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Setup Req';
+        setTimeout(() => { if (btn) btn.innerHTML = '<i class="fas fa-cloud"></i> Cloud Sync'; }, 2000);
+        return;
+    }
+    if (btn) btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Loading...';
+    try {
+        const res = await fetch(`https://api.github.com/gists/${GIST_ID}`, {
+            headers: { 'Authorization': `token ${GITHUB_TOKEN}` }, cache: 'no-store'
+        });
+        if (!res.ok) throw new Error();
+        const json = await res.json();
+        if (json.files && json.files[GIST_FILENAME]) {
+            const data = JSON.parse(json.files[GIST_FILENAME].content);
+            if (data.chores) chores = data.chores;
+            if (data.notes !== undefined) notesArea.value = data.notes;
+            localStorage.setItem('choreData', JSON.stringify(chores));
+            localStorage.setItem('choreNotes', notesArea.value);
+            renderUI();
+            lastSyncedTime = new Date();
+            updateSyncTimestamp();
+            if (btn) btn.innerHTML = '<i class="fas fa-cloud-download-alt"></i> Loaded';
+        } else {
+            saveToGistThrottled();
+        }
+    } catch(e) {
+        if (btn) btn.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Error';
+    }
+    setTimeout(() => { if (btn) btn.innerHTML = '<i class="fas fa-cloud"></i> Cloud Sync'; }, 2000);
+};
+
 function renderUI() {
-    listDaily.innerHTML = ''; listErrands.innerHTML = ''; listOneoff.innerHTML = '';
+    listDaily.innerHTML = '';
+    listErrands.innerHTML = '';
+    listOneoff.innerHTML = '';
 
     let hasDaily = false;
     let hasErrands = false;
@@ -171,16 +213,9 @@ function renderUI() {
             </div>
         `;
 
-        if (c.type === 'daily') {
-            listDaily.appendChild(li);
-            hasDaily = true;
-        } else if (c.type === 'errands') {
-            listErrands.appendChild(li);
-            hasErrands = true;
-        } else if (c.type === 'oneoff') {
-            listOneoff.appendChild(li);
-            hasOneoff = true;
-        }
+        if (c.type === 'daily') { listDaily.appendChild(li); hasDaily = true; }
+        else if (c.type === 'errands') { listErrands.appendChild(li); hasErrands = true; }
+        else if (c.type === 'oneoff') { listOneoff.appendChild(li); hasOneoff = true; }
     });
 
     sectionDaily.style.display = hasDaily ? 'block' : 'none';
@@ -195,21 +230,16 @@ notesArea.addEventListener('input', () => {
     saveToGistThrottled();
 });
 
-const settingsModal = document.getElementById('settings-modal');
-window.openSettings = () => {
-    document.getElementById('github-token-input').value = GITHUB_TOKEN;
-    document.getElementById('gist-id-input').value = GIST_ID;
-    settingsModal.style.display = 'flex';
-};
-
-document.getElementById('close-settings-btn').addEventListener('click', () => { settingsModal.style.display = 'none'; });
+document.getElementById('close-settings-btn').addEventListener('click', () => {
+    document.getElementById('settings-modal').style.display = 'none';
+});
 
 document.getElementById('save-settings-btn').addEventListener('click', () => {
     GITHUB_TOKEN = document.getElementById('github-token-input').value.trim();
     GIST_ID = document.getElementById('gist-id-input').value.trim();
     localStorage.setItem('githubToken', GITHUB_TOKEN);
     localStorage.setItem('gistId', GIST_ID);
-    settingsModal.style.display = 'none';
+    document.getElementById('settings-modal').style.display = 'none';
     if (GITHUB_TOKEN && GIST_ID) window.manualSync();
 });
 
@@ -237,7 +267,7 @@ function updateSyncTimestamp() {
     if (!timestampEl || !lastSyncedTime) return;
     const diffSec = Math.floor((new Date() - lastSyncedTime) / 1000);
     if (diffSec < 60) timestampEl.innerText = `Last synced: ${diffSec}s ago`;
-    else timestampEl.innerText = `Last synced: ${Math.floor(diffSec/60)}m ago`;
+    else timestampEl.innerText = `Last synced: ${Math.floor(diffSec / 60)}m ago`;
 }
 setInterval(updateSyncTimestamp, 60000);
 
@@ -259,7 +289,8 @@ function saveToGistThrottled() {
                 body: JSON.stringify({ files: { [GIST_FILENAME]: { content: JSON.stringify({ chores, notes: notesArea.value }, null, 2) } } })
             });
             if (res.ok) {
-                lastSyncedTime = new Date(); updateSyncTimestamp();
+                lastSyncedTime = new Date();
+                updateSyncTimestamp();
                 if (btn) btn.innerHTML = '<i class="fas fa-check-circle"></i> Saved';
             } else throw new Error();
         } catch(e) {
@@ -269,40 +300,10 @@ function saveToGistThrottled() {
     }, 1500);
 }
 
-window.manualSync = async () => {
-    const btn = document.getElementById('sync-btn');
-    if (!GITHUB_TOKEN || !GIST_ID) {
-        if (btn) btn.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Setup Req';
-        setTimeout(() => { if (btn) btn.innerHTML = '<i class="fas fa-cloud"></i> Cloud Sync'; }, 2000);
-        return;
-    }
-    if (btn) btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Loading...';
-    try {
-        const res = await fetch(`https://api.github.com/gists/${GIST_ID}`, {
-            headers: { 'Authorization': `token ${GITHUB_TOKEN}` }, cache: 'no-store'
-        });
-        if (!res.ok) throw new Error();
-        const json = await res.json();
-        if (json.files && json.files[GIST_FILENAME]) {
-            const data = JSON.parse(json.files[GIST_FILENAME].content);
-            if (data.chores) chores = data.chores;
-            if (data.notes !== undefined) notesArea.value = data.notes;
-            localStorage.setItem('choreData', JSON.stringify(chores));
-            localStorage.setItem('choreNotes', notesArea.value);
-            renderUI();
-            lastSyncedTime = new Date(); updateSyncTimestamp();
-            if (btn) btn.innerHTML = '<i class="fas fa-cloud-download-alt"></i> Loaded';
-        } else saveToGistThrottled();
-    } catch(e) {
-        if (btn) btn.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Error';
-    }
-    setTimeout(() => { if (btn) btn.innerHTML = '<i class="fas fa-cloud"></i> Cloud Sync'; }, 2000);
-};
-
 function initApp() {
     const savedNotes = localStorage.getItem('choreNotes');
     if (savedNotes) notesArea.value = savedNotes;
-    
+
     if (chores.length === 0) {
         chores = [
             { id: 101, text: 'Clean kitchen counters', type: 'daily', completed: false },
@@ -311,14 +312,15 @@ function initApp() {
         ];
         localStorage.setItem('choreData', JSON.stringify(chores));
     }
-    
+
     renderUI();
     window.manualSync();
 }
 
 // FUTURE IDEAS
-// 1. Recurring Auto-Reset: Automatically uncheck "Daily Maintenance" chores at midnight local time instead of requiring a manual reset click.
-// 2. Gamification & Points: Assign point values to different chore types and maintain a weekly score.
-// 3. User Accounts: Add support for family members to assign tasks to specific people.
-// 4. Sub-tasks: Allow adding a small checklist inside a large task.
-// 5. Activity Log: Keep a rolling 7-day history array in the Gist to show exactly when chores were completed.
+// 1. Recurring Auto-Reset: Automatically uncheck "Daily Maintenance" chores at midnight local time.
+// 2. Gamification & Points: Assign point values to chore types and maintain a weekly score.
+// 3. User Accounts: Support family members assigning tasks to specific people.
+// 4. Sub-tasks: Allow a small checklist inside a larger task.
+// 5. Activity Log: Keep a rolling 7-day history array in the Gist showing when chores were completed.
+// 6. Push Notifications: Remind the user to reset maintenance chores each morning via browser notifications.
