@@ -64,6 +64,16 @@ function updateDateAndProgress() {
 
     progressFill.style.width = `${percentage}%`;
     daysLeftText.innerText = `${completed} out of ${total} tasks complete`;
+
+    // Mood-ring: color shifts based on completion %
+    progressFill.classList.remove('mood-low', 'mood-mid', 'mood-high');
+    if (percentage < 25) {
+        progressFill.classList.add('mood-low');
+    } else if (percentage < 75) {
+        progressFill.classList.add('mood-mid');
+    } else {
+        progressFill.classList.add('mood-high');
+    }
 }
 
 form.addEventListener('submit', (e) => {
@@ -95,7 +105,20 @@ form.addEventListener('submit', (e) => {
 window.toggleChore = (id) => {
     chores = chores.map(c => c.id === id ? { ...c, completed: !c.completed } : c);
     updateLocalAndGist();
-    renderUI();
+
+    // Animate the item before re-rendering so the sink feels smooth
+    const li = document.querySelector(`[data-chore-id="${id}"]`);
+    if (li) {
+        const wasCompleted = chores.find(c => c.id === id)?.completed;
+        if (wasCompleted) {
+            li.classList.add('completing');
+            setTimeout(() => renderUI(), 320);
+        } else {
+            renderUI();
+        }
+    } else {
+        renderUI();
+    }
 };
 
 window.editChore = (id) => {
@@ -185,24 +208,22 @@ window.manualSync = async () => {
     setTimeout(() => { if (btn) btn.innerHTML = '<i class="fas fa-cloud"></i> Cloud Sync'; }, 2000);
 };
 
-function renderUI() {
-    listDaily.innerHTML = '';
-    listErrands.innerHTML = '';
-    listOneoff.innerHTML = '';
-
-    let hasDaily = false;
-    let hasErrands = false;
-    let hasOneoff = false;
-
-    chores.forEach(c => {
+function renderList(listEl, choreSubset) {
+    listEl.innerHTML = '';
+    // Active tasks first, completed tasks sink to bottom
+    const active = choreSubset.filter(c => !c.completed);
+    const done = choreSubset.filter(c => c.completed);
+    [...active, ...done].forEach(c => {
         const li = document.createElement('li');
         let cssClass = 'priority-' + c.type;
         if (c.completed) cssClass = 'completed';
         li.className = cssClass;
+        li.dataset.choreId = c.id;
 
         li.innerHTML = `
             <div class="checkbox-container">
                 <input type="checkbox" ${c.completed ? 'checked' : ''} onchange="toggleChore(${c.id})">
+                <span class="checkmark-burst"></span>
             </div>
             <div class="list-info">
                 <span>${c.text}</span>
@@ -212,15 +233,22 @@ function renderUI() {
                 <button class="action-btn delete-btn" onclick="deleteChore(${c.id})"><i class="fas fa-times"></i></button>
             </div>
         `;
-
-        if (c.type === 'daily') { listDaily.appendChild(li); hasDaily = true; }
-        else if (c.type === 'errands') { listErrands.appendChild(li); hasErrands = true; }
-        else if (c.type === 'oneoff') { listOneoff.appendChild(li); hasOneoff = true; }
+        listEl.appendChild(li);
     });
+}
 
-    sectionDaily.style.display = hasDaily ? 'block' : 'none';
-    sectionErrands.style.display = hasErrands ? 'block' : 'none';
-    sectionOneoff.style.display = hasOneoff ? 'block' : 'none';
+function renderUI() {
+    const dailyChores = chores.filter(c => c.type === 'daily');
+    const errandsChores = chores.filter(c => c.type === 'errands');
+    const oneoffChores = chores.filter(c => c.type === 'oneoff');
+
+    renderList(listDaily, dailyChores);
+    renderList(listErrands, errandsChores);
+    renderList(listOneoff, oneoffChores);
+
+    sectionDaily.style.display = dailyChores.length > 0 ? 'block' : 'none';
+    sectionErrands.style.display = errandsChores.length > 0 ? 'block' : 'none';
+    sectionOneoff.style.display = oneoffChores.length > 0 ? 'block' : 'none';
 
     updateDateAndProgress();
 }
@@ -229,6 +257,23 @@ notesArea.addEventListener('input', () => {
     localStorage.setItem('choreNotes', notesArea.value);
     saveToGistThrottled();
 });
+
+// Notes floating toggle for mobile
+const notesToggle = document.getElementById('notes-fab');
+const notesSidebar = document.querySelector('.ledger-sidebar');
+if (notesToggle && notesSidebar) {
+    notesToggle.addEventListener('click', () => {
+        notesSidebar.classList.toggle('notes-open');
+        notesToggle.classList.toggle('notes-active');
+    });
+    // Close if clicking outside
+    document.addEventListener('click', (e) => {
+        if (!notesSidebar.contains(e.target) && !notesToggle.contains(e.target)) {
+            notesSidebar.classList.remove('notes-open');
+            notesToggle.classList.remove('notes-active');
+        }
+    });
+}
 
 document.getElementById('close-settings-btn').addEventListener('click', () => {
     document.getElementById('settings-modal').style.display = 'none';
@@ -316,11 +361,3 @@ function initApp() {
     renderUI();
     window.manualSync();
 }
-
-// FUTURE IDEAS
-// 1. Recurring Auto-Reset: Automatically uncheck "Daily Maintenance" chores at midnight local time.
-// 2. Gamification & Points: Assign point values to chore types and maintain a weekly score.
-// 3. User Accounts: Support family members assigning tasks to specific people.
-// 4. Sub-tasks: Allow a small checklist inside a larger task.
-// 5. Activity Log: Keep a rolling 7-day history array in the Gist showing when chores were completed.
-// 6. Push Notifications: Remind the user to reset maintenance chores each morning via browser notifications.
