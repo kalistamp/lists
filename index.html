@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Chore Command Center</title>
+    <title>Chore Tracker</title>
     <link rel="stylesheet" href="./style.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
@@ -11,8 +11,8 @@
 <body class="dark-mode">
     <div id="login-overlay">
         <div class="login-box">
-            <h2><i class="fas fa-terminal"></i> SYSTEM_ACCESS</h2>
-            <p>Authentication required...</p>
+            <h2><i class="fas fa-lock"></i> CHORE_LIST</h2>
+            <p>Authentication required</p>
             <input type="password" id="password-input" placeholder="PASSKEY">
             <button id="login-btn" class="btn">INITIALIZE</button>
             <p id="login-error" class="error-msg"></p>
@@ -32,7 +32,7 @@
             </div>
             <div class="modal-actions">
                 <button class="btn btn-ghost" id="save-settings-btn">SAVE_SYNC</button>
-                <button class="btn btn-ghost secondary" id="close-settings-btn">ABORT</button>
+                <button class="btn btn-ghost" id="close-settings-btn">ABORT</button>
             </div>
         </div>
     </div>
@@ -48,58 +48,30 @@
         </div>
     </div>
 
-    <div class="command-grid" id="app-container" style="display: none;">
-        <!-- COLUMN 1: CONTEXT -->
-        <aside class="panel context-panel">
-            <header class="panel-header">
-                <h1>COMMAND_CENTER</h1>
-                <div class="status-indicator">
-                    <span class="pulse"></span> ONLINE
+    <div class="app-container" id="app-container" style="display: none;">
+        <main class="main-content">
+            <header class="main-header">
+                <h1>CHORE LIST</h1>
+                <div class="date-module">
+                    <p id="current-date">00.00.0000</p>
+                    <div class="progress-container">
+                        <div class="progress-bar">
+                            <div id="month-progress" class="progress-fill"></div>
+                        </div>
+                        <p id="days-left" class="mono-label">COMPLETION: 0%</p>
+                    </div>
                 </div>
             </header>
 
-            <div class="date-module">
-                <p id="current-date">00.00.0000</p>
-                <div class="progress-container">
-                    <div class="progress-bar">
-                        <div id="month-progress" class="progress-fill"></div>
-                    </div>
-                    <p id="days-left" class="mono-label">COMPLETION: 0%</p>
-                </div>
-            </div>
-
-            <div class="notes-module">
-                <div class="module-header">
-                    <h3><i class="fas fa-edit"></i> SYSTEM_LOGS</h3>
-                </div>
-                <textarea id="notes-area" placeholder="Write entry..."></textarea>
-            </div>
-
-            <div class="system-controls">
-                <button class="btn btn-ghost" onclick="resetMaintenance()">
-                    <i class="fas fa-sync-alt"></i> RESET_DAILY
-                </button>
-                <button class="btn btn-ghost" id="sync-btn" onclick="manualSync()">
-                    <i class="fas fa-cloud"></i> CLOUD_SYNC
-                </button>
-                <button class="btn btn-ghost" onclick="openSettings()">
-                    <i class="fas fa-cog"></i> CONFIG
-                </button>
-                <span id="sync-timestamp" class="mono-label"></span>
-            </div>
-        </aside>
-
-        <!-- COLUMN 2: PRIMARY ACTION -->
-        <main class="panel action-panel">
             <section class="form-module">
-                <h3 id="form-title">NEW_CHORE_ENTRY</h3>
+                <h3 id="form-title">ADD_TASK</h3>
                 <form id="form">
                     <div class="form-control">
-                        <label>DESC</label>
-                        <input type="text" id="text" placeholder="CHORE_ID" required>
+                        <label>TASK DESCRIPTION</label>
+                        <input type="text" id="text" placeholder="e.g. Clean kitchen" required>
                     </div>
                     <div class="form-control">
-                        <label>TYPE_CLASSIFICATION</label>
+                        <label>CATEGORY</label>
                         <select id="type">
                             <option value="daily">DAILY_MAINTENANCE</option>
                             <option value="errands">ERRANDS_SHOPPING</option>
@@ -110,24 +82,43 @@
                 </form>
             </section>
 
-            <section id="section-daily" class="list-module">
-                <div class="list-header"><h3>DAILY_MAINTENANCE</h3></div>
-                <ul id="list-daily" class="chore-list"></ul>
-            </section>
+            <div class="controls-row">
+                <button class="btn btn-ghost" onclick="resetMaintenance()">
+                    <i class="fas fa-sync-alt"></i> RESET MAINTENANCE
+                </button>
+                <button class="btn btn-ghost" id="sync-btn" onclick="manualSync()">
+                    <i class="fas fa-cloud"></i> CLOUD_SYNC
+                </button>
+                <button class="btn btn-ghost" onclick="openSettings()">
+                    <i class="fas fa-cog"></i> SETTINGS
+                </button>
+            </div>
+            <span id="sync-timestamp" class="mono-label sync-tag"></span>
+
+            <div class="vertical-lists">
+                <section id="section-daily" class="list-module">
+                    <div class="list-header"><h3>DAILY_MAINTENANCE</h3></div>
+                    <ul id="list-daily" class="chore-list"></ul>
+                </section>
+
+                <section id="section-errands" class="list-module">
+                    <div class="list-header"><h3>ERRANDS_SHOPPING</h3></div>
+                    <ul id="list-errands" class="chore-list"></ul>
+                </section>
+
+                <section id="section-oneoff" class="list-module">
+                    <div class="list-header"><h3>ONE_OFF_TASKS</h3></div>
+                    <ul id="list-oneoff" class="chore-list"></ul>
+                </section>
+            </div>
+
+            <div class="notes-module">
+                <div class="module-header">
+                    <h3><i class="fas fa-edit"></i> SYSTEM_LOGS</h3>
+                </div>
+                <textarea id="notes-area" placeholder="Write entry..."></textarea>
+            </div>
         </main>
-
-        <!-- COLUMN 3: SECONDARY ACTION -->
-        <aside class="panel secondary-panel">
-            <section id="section-errands" class="list-module">
-                <div class="list-header"><h3>ERRANDS_SHOPPING</h3></div>
-                <ul id="list-errands" class="chore-list"></ul>
-            </section>
-
-            <section id="section-oneoff" class="list-module">
-                <div class="list-header"><h3>ONE_OFF_TASKS</h3></div>
-                <ul id="list-oneoff" class="chore-list"></ul>
-            </section>
-        </aside>
     </div>
 
     <script type="module" src="./script.js"></script>
