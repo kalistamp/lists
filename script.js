@@ -35,7 +35,8 @@ function checkMidnightReset() {
     const lastReset = localStorage.getItem('lastPlanReset');
     const today = new Date().toDateString();
     if (lastReset !== today) {
-        dailyPlan = [];
+        // Automatically populate daily plan with starred chores
+        dailyPlan = chores.filter(c => c.starred).map(c => c.id);
         localStorage.setItem('dailyPlan', JSON.stringify(dailyPlan));
         localStorage.setItem('lastPlanReset', today);
     }
@@ -191,9 +192,22 @@ window.movePlanItem = (id, dir) => {
     updateDailyPlan();
 };
 
-// STAR TOGGLE
+// STAR TOGGLE (CORRELATED WITH DAILY PLAN)
 window.toggleStar = (id) => {
-    chores = chores.map(c => c.id === id ? { ...c, starred: !c.starred } : c);
+    chores = chores.map(c => {
+        if (c.id === id) {
+            const newStarred = !c.starred;
+            // Automatically add to or remove from today's plan
+            if (newStarred && !dailyPlan.includes(id)) {
+                dailyPlan.push(id);
+            } else if (!newStarred && dailyPlan.includes(id)) {
+                dailyPlan = dailyPlan.filter(pid => pid !== id);
+            }
+            return { ...c, starred: newStarred };
+        }
+        return c;
+    });
+    savePlan();
     saveAndSync();
 };
 
@@ -221,6 +235,9 @@ window.toggleChore = (id) => {
 
 window.resetMaintenance = () => {
     chores = chores.map(c => c.type === 'daily' ? { ...c, completed: false } : c);
+    // Refresh the daily plan with starred items upon reset
+    dailyPlan = chores.filter(c => c.starred).map(c => c.id);
+    savePlan();
     saveAndSync();
 };
 
