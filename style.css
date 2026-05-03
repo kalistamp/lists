@@ -84,7 +84,7 @@ input:focus, select:focus, textarea:focus { outline: none; border-bottom-color: 
   display: flex;
   align-items: center;
   gap: 15px;
-  cursor: pointer; /* Makes the whole bar look clickable */
+  cursor: pointer; 
   transition: transform 0.1s;
 }
 .chore-list li:active { transform: scale(0.99); }
