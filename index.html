@@ -37,6 +37,7 @@
         </div>
     </div>
 
+    <!-- DELETE CONFIRMATION MODAL (wired via JS) -->
     <div id="confirm-modal" class="modal-overlay" style="display: none;">
         <div class="login-box">
             <h2 id="confirm-title">VERIFY_ACTION</h2>
@@ -44,6 +45,27 @@
             <div class="modal-actions">
                 <button class="btn btn-danger" id="confirm-yes-btn">CONFIRM</button>
                 <button class="btn btn-ghost" id="confirm-no-btn">CANCEL</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- TIME BLOCK MODAL -->
+    <div id="timeblock-modal" class="modal-overlay" style="display: none;">
+        <div class="login-box timeblock-box">
+            <h2><i class="fas fa-clock"></i> ASSIGN_TIME_BLOCK</h2>
+            <p class="timeblock-chore-name" id="timeblock-chore-label"></p>
+            <div class="field-group">
+                <label>START_TIME</label>
+                <input type="time" id="timeblock-start" class="timeblock-time-input">
+            </div>
+            <div class="field-group">
+                <label>END_TIME</label>
+                <input type="time" id="timeblock-end" class="timeblock-time-input">
+            </div>
+            <div class="modal-actions">
+                <button class="btn btn-primary" id="timeblock-save-btn">ASSIGN</button>
+                <button class="btn btn-ghost" id="timeblock-clear-btn">CLEAR_BLOCK</button>
+                <button class="btn btn-ghost" id="timeblock-cancel-btn">ABORT</button>
             </div>
         </div>
     </div>
@@ -100,7 +122,7 @@
                     <h3><i class="fas fa-list-ol"></i> TODAY'S_PLAN</h3>
                     <span id="plan-count" class="mono-label plan-count-tag">0 TASKS</span>
                 </div>
-                <ul id="list-daily-plan" class="chore-list plan-list"></ul>
+                <div id="list-daily-plan"></div>
                 <p id="plan-empty" class="plan-empty-msg">NO TASKS QUEUED — CHECK CHORES BELOW</p>
             </section>
 
