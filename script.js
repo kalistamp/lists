@@ -194,26 +194,44 @@ function updateDailyPlan() {
     emptyMsg.style.display = 'none';
     countTag.innerText = `${dailyPlan.length} TASK${dailyPlan.length > 1 ? 'S' : ''}`;
 
-    // Group chores by time block label for rendering
-    // Chores with no time block go into a null group
-    // Build ordered groups preserving dailyPlan order
-    const groups = []; // [{ label: string|null, items: [{ id, idx }] }]
-    const labelMap = {}; // label string → group index
+    // Group chores by time block label for rendering.
+    // Chores with no time block go into a null group (always rendered last).
+    // Groups with a start time are sorted chronologically.
+    const groups = []; // [{ label: string|null, startMinutes: number|null, items: [{ id, idx }] }]
+    const labelMap = {}; // key → group index
+
+    // "HH:MM" → total minutes from midnight for sorting (null if missing)
+    function toMinutes(timeStr) {
+        if (!timeStr) return null;
+        const [h, m] = timeStr.split(':').map(Number);
+        return h * 60 + m;
+    }
 
     dailyPlan.forEach((id, idx) => {
         const block = timeBlocks[id];
         let label = null;
+        let startMinutes = null;
         if (block && (block.start || block.end)) {
             const s = block.start ? formatTime(block.start) : '?';
             const e = block.end ? formatTime(block.end) : '?';
             label = `${s} – ${e}`;
+            startMinutes = toMinutes(block.start);
         }
         const key = label === null ? '__unblocked__' : label;
         if (labelMap[key] === undefined) {
             labelMap[key] = groups.length;
-            groups.push({ label, items: [] });
+            groups.push({ label, startMinutes, items: [] });
         }
         groups[labelMap[key]].items.push({ id, idx });
+    });
+
+    // Sort: timed groups ascending by start time, unblocked group always last
+    groups.sort((a, b) => {
+        if (a.label === null) return 1;
+        if (b.label === null) return -1;
+        const aMin = a.startMinutes ?? Infinity;
+        const bMin = b.startMinutes ?? Infinity;
+        return aMin - bMin;
     });
 
     groups.forEach(group => {
