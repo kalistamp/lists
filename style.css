@@ -48,7 +48,7 @@ h3 { font-size: 0.85rem; color: var(--text-muted); margin-bottom: 15px; }
 /* FORMS */
 .form-control { margin-bottom: 15px; }
 label { font-size: 0.7rem; color: var(--text-muted); display: block; margin-bottom: 5px; }
-input[type="text"], input[type="password"], select, textarea {
+input[type="text"], input[type="password"], input[type="time"], select, textarea {
   width: 100%;
   background: transparent;
   border: none;
@@ -58,6 +58,12 @@ input[type="text"], input[type="password"], select, textarea {
   transition: border-color 0.3s;
 }
 input:focus, select:focus, textarea:focus { outline: none; border-bottom-color: var(--primary); }
+
+/* time input color fix for dark mode */
+input[type="time"]::-webkit-calendar-picker-indicator {
+  filter: invert(1);
+  opacity: 0.5;
+}
 
 /* BUTTONS */
 .btn {
@@ -71,6 +77,7 @@ input:focus, select:focus, textarea:focus { outline: none; border-bottom-color: 
 .btn-primary { background: var(--primary); color: #fff; width: 100%; }
 .btn-ghost { background: transparent; border-color: var(--border-dim); color: var(--text-muted); flex: 1; }
 .btn-ghost:hover { border-color: var(--primary); color: var(--primary); }
+.btn-danger { background: var(--danger); color: #fff; flex: 1; border-color: var(--danger); }
 .controls-row { display: flex; gap: 10px; margin-bottom: 10px; }
 .sync-tag { display: block; text-align: center; font-size: 0.7rem; margin-bottom: 20px; }
 
@@ -150,6 +157,79 @@ li.completed .custom-check {
 .plan-reorder button:hover { color: var(--primary); }
 .plan-reorder button:disabled { opacity: 0.2; cursor: default; }
 
+/* FEATURE 2: Inline completion checkbox in Today's Plan */
+.plan-complete-check {
+  width: 26px;
+  height: 26px;
+  border: 2px dashed var(--text-muted);
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+}
+.plan-complete-check:hover {
+  border-color: var(--success);
+}
+.plan-complete-check.done {
+  background: var(--success);
+  border-color: var(--success);
+  border-style: solid;
+  color: #fff;
+}
+
+/* FEATURE 3: Time block headers in Today's Plan */
+.timeblock-header {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: var(--primary);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  padding: 8px 4px 4px;
+  margin-top: 10px;
+  border-top: 1px solid rgba(59, 130, 246, 0.25);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.timeblock-header:first-child {
+  margin-top: 0;
+  border-top: none;
+}
+
+/* Clock icon on plan items */
+.plan-clock-icon {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+  padding: 4px;
+  transition: color 0.2s;
+}
+.plan-clock-icon:hover { color: var(--primary); }
+.plan-clock-icon.assigned { color: var(--primary); }
+
+/* FEATURE 3: Time block modal sizing */
+.timeblock-box {
+  width: 100%;
+  max-width: 340px;
+}
+.timeblock-chore-name {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-bottom: 20px;
+  letter-spacing: 0.5px;
+  word-break: break-word;
+}
+.timeblock-time-input {
+  font-family: var(--font-mono) !important;
+  font-size: 1rem !important;
+  padding: 12px 0 !important;
+}
+
 /* CHORE ITEM ENHANCEMENTS */
 .chore-queue-check {
   width: 22px; height: 22px;
@@ -181,14 +261,48 @@ li.completed .custom-check {
 .chore-star-btn.starred { color: #f59e0b; }
 .chore-star-btn:hover { color: #f59e0b; }
 
-/* BUMP UP TOUCH TARGET SIZE ON MOBILE */
+/* MOBILE — bump up all touch targets for iOS */
 @media (max-width: 600px) {
-  .chore-list li { padding: 14px 12px; gap: 12px; }
-  .chore-queue-check { width: 26px; height: 26px; }
-  .plan-reorder button { padding: 4px 7px; font-size: 0.7rem; }
+  .chore-list li { padding: 14px 12px; gap: 10px; }
+  .chore-queue-check { width: 30px; height: 30px; }
+  .plan-complete-check { width: 30px; height: 30px; }
+  .plan-reorder button { padding: 6px 9px; font-size: 0.75rem; }
+  .plan-clock-icon { font-size: 0.9rem; padding: 6px; }
+  .chore-star-btn { font-size: 1rem; padding: 4px 6px; }
+  .btn { padding: 14px; font-size: 0.8rem; }
+  .timeblock-box { max-width: 100%; margin: 0 16px; }
 }
 
 .modal-overlay {
   position: fixed; top: 0; left: 0; width: 100%; height: 100%;
   background: rgba(0,0,0,0.85); display: flex; justify-content: center; align-items: center; z-index: 2000;
+  padding: 20px;
 }
+
+/* Login / modal box shared styles */
+.login-box {
+  background: var(--bg-panel);
+  border: 1px solid var(--border-dim);
+  padding: 30px;
+  width: 100%;
+  max-width: 380px;
+}
+.login-box h2 { font-size: 0.9rem; margin-bottom: 20px; color: var(--primary); }
+.login-box p { font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-muted); margin-bottom: 20px; letter-spacing: 1px; }
+.field-group { margin-bottom: 20px; }
+.modal-actions { display: flex; gap: 10px; margin-top: 25px; flex-wrap: wrap; }
+.error-msg { color: var(--danger); font-size: 0.7rem; margin-top: 10px; }
+
+/* Progress bar */
+.progress-container { margin-top: 8px; }
+.progress-bar { background: var(--border-dim); height: 3px; width: 100%; }
+.progress-fill { background: var(--primary); height: 100%; transition: width 0.4s ease; }
+.date-module { text-align: center; margin-bottom: 10px; }
+#current-date { font-size: 0.8rem; color: var(--text-muted); margin-bottom: 6px; }
+
+/* Header layout */
+.main-header { margin-bottom: 20px; }
+.list-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 15px; }
+.list-header h3 { margin-bottom: 0; }
+.module-header { margin-bottom: 12px; }
+#notes-area { min-height: 120px; resize: vertical; font-family: var(--font-main); font-size: 0.85rem; line-height: 1.6; }
