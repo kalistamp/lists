@@ -252,15 +252,16 @@ function updateDailyPlan() {
 
             const li = document.createElement('li');
             li.className = `priority-${c.type} ${c.completed ? 'completed' : ''}`;
+            li.dataset.id = id;
 
-            const upDisabled = idx === 0 ? 'disabled' : '';
-            const downDisabled = idx === dailyPlan.length - 1 ? 'disabled' : '';
+            // Long-press drag-and-drop reorder
+            attachPlanDrag(li, id);
 
             const blockIcon = timeBlocks[id]
                 ? '<i class="fas fa-clock plan-clock-icon assigned" title="Edit time block"></i>'
                 : '<i class="fas fa-clock plan-clock-icon" title="Assign time block"></i>';
 
-            // Feature 2: inline completion checkbox
+            // Inline completion checkbox
             const checkClass = c.completed ? 'plan-complete-check done' : 'plan-complete-check';
             const checkIcon = c.completed ? '<i class="fas fa-check" style="font-size:0.6rem;"></i>' : '';
 
@@ -270,10 +271,6 @@ function updateDailyPlan() {
                 </div>
                 <span class="plan-num">${String(idx + 1).padStart(2, '0')}.</span>
                 <div style="flex-grow: 1; font-family: var(--font-mono); font-size: 0.85rem;">${c.text}</div>
-                <div class="plan-reorder">
-                    <button onclick="movePlanItem(${id}, -1)" ${upDisabled} title="Move up">▲</button>
-                    <button onclick="movePlanItem(${id}, 1)" ${downDisabled} title="Move down">▼</button>
-                </div>
                 <span onclick="openTimeBlockModal(${id})">${blockIcon}</span>
                 <i class="fas fa-trash" style="color: var(--danger); font-size: 0.8rem;" onclick="deleteChore(${id})"></i>
             `;
@@ -284,28 +281,166 @@ function updateDailyPlan() {
     });
 }
 
+// ─────────────────────────────────────────────
+// SWIPE LEFT TO REVEAL EDIT / DELETE
+// ─────────────────────────────────────────────
+let activeSwipeEl = null;
+
+function attachSwipe(li, id) {
+    let startX = 0;
+    let startY = 0;
+    let isDragging = false;
+    const THRESHOLD = 60; // px needed to fully reveal actions
+
+    li.addEventListener('touchstart', (e) => {
+        startX = e.touches[0].clientX;
+        startY = e.touches[0].clientY;
+        isDragging = false;
+    }, { passive: true });
+
+    li.addEventListener('touchmove', (e) => {
+        const dx = e.touches[0].clientX - startX;
+        const dy = e.touches[0].clientY - startY;
+        // Only handle horizontal swipes
+        if (!isDragging && Math.abs(dy) > Math.abs(dx)) return;
+        isDragging = true;
+        if (dx < 0) {
+            const shift = Math.min(Math.abs(dx), THRESHOLD);
+            li.style.transform = `translateX(-${shift}px)`;
+            if (shift >= THRESHOLD) li.classList.add('swiped');
+        } else if (dx > 0 && li.classList.contains('swiped')) {
+            li.style.transform = `translateX(0)`;
+            li.classList.remove('swiped');
+        }
+    }, { passive: true });
+
+    li.addEventListener('touchend', () => {
+        if (!isDragging) return;
+        const swiped = li.classList.contains('swiped');
+        if (!swiped) {
+            li.style.transform = '';
+        }
+        // Close any previously opened swipe that isn't this one
+        if (activeSwipeEl && activeSwipeEl !== li) {
+            activeSwipeEl.style.transform = '';
+            activeSwipeEl.classList.remove('swiped');
+        }
+        activeSwipeEl = swiped ? li : null;
+    });
+}
+
+// Close open swipe if user taps elsewhere
+document.addEventListener('touchstart', (e) => {
+    if (activeSwipeEl && !activeSwipeEl.contains(e.target)) {
+        activeSwipeEl.style.transform = '';
+        activeSwipeEl.classList.remove('swiped');
+        activeSwipeEl = null;
+    }
+}, { passive: true });
+
+// ─────────────────────────────────────────────
+// DRAG-AND-DROP REORDER FOR TODAY'S PLAN
+// ─────────────────────────────────────────────
+let dragSrcId = null;
+
+function attachPlanDrag(li, id) {
+    let longPressTimer = null;
+    let dragActive = false;
+    let startY = 0;
+    let currentDropTarget = null;
+
+    const startLongPress = (clientY) => {
+        startY = clientY;
+        longPressTimer = setTimeout(() => {
+            dragActive = true;
+            dragSrcId = id;
+            li.classList.add('drag-source');
+            if (navigator.vibrate) navigator.vibrate([30, 20, 30]);
+        }, 500);
+    };
+
+    const cancelLongPress = () => {
+        clearTimeout(longPressTimer);
+        if (!dragActive) return;
+        dragActive = false;
+        li.classList.remove('drag-source');
+        if (currentDropTarget) {
+            currentDropTarget.classList.remove('drag-over');
+            currentDropTarget = null;
+        }
+    };
+
+    li.addEventListener('touchstart', (e) => {
+        startLongPress(e.touches[0].clientY);
+    }, { passive: true });
+
+    li.addEventListener('touchmove', (e) => {
+        if (!dragActive) { clearTimeout(longPressTimer); return; }
+        e.preventDefault();
+        const touch = e.touches[0];
+        const el = document.elementFromPoint(touch.clientX, touch.clientY);
+        const targetLi = el ? el.closest('.plan-list li') : null;
+        if (currentDropTarget && currentDropTarget !== targetLi) {
+            currentDropTarget.classList.remove('drag-over');
+        }
+        if (targetLi && targetLi !== li) {
+            targetLi.classList.add('drag-over');
+            currentDropTarget = targetLi;
+        } else {
+            currentDropTarget = null;
+        }
+    }, { passive: false });
+
+    li.addEventListener('touchend', () => {
+        clearTimeout(longPressTimer);
+        if (!dragActive) return;
+        dragActive = false;
+        li.classList.remove('drag-source');
+        if (currentDropTarget) {
+            currentDropTarget.classList.remove('drag-over');
+            const targetId = parseInt(currentDropTarget.dataset.id);
+            if (targetId && dragSrcId !== targetId) {
+                const fromIdx = dailyPlan.indexOf(dragSrcId);
+                const toIdx = dailyPlan.indexOf(targetId);
+                if (fromIdx !== -1 && toIdx !== -1) {
+                    dailyPlan.splice(fromIdx, 1);
+                    dailyPlan.splice(toIdx, 0, dragSrcId);
+                    savePlan();
+                    updateDailyPlan();
+                }
+            }
+            currentDropTarget = null;
+        }
+        dragSrcId = null;
+    });
+}
+
 // UI RENDERING
 function updateUI() {
     Object.values(lists).forEach(l => l.innerHTML = '');
 
-    const sorted = [...chores].sort((a, b) => {
-        if (a.type !== b.type) return 0;
-        return (b.starred ? 1 : 0) - (a.starred ? 1 : 0);
-    });
-
     ['daily', 'errands', 'oneoff'].forEach(type => {
-        const group = sorted.filter(c => c.type === type);
-        group.sort((a, b) => (b.starred ? 1 : 0) - (a.starred ? 1 : 0));
+        const group = chores.filter(c => c.type === type);
+        // Starred first, then incomplete, completed sink to bottom
+        group.sort((a, b) => {
+            if (a.completed !== b.completed) return a.completed ? 1 : -1;
+            return (b.starred ? 1 : 0) - (a.starred ? 1 : 0);
+        });
         group.forEach(c => {
             const isQueued = dailyPlan.includes(c.id);
             const li = document.createElement('li');
             li.className = `priority-${c.type} ${c.completed ? 'completed' : ''}`;
+            li.dataset.id = c.id;
+
+            // Swipe-left to reveal edit/delete
+            attachSwipe(li, c.id);
 
             li.onclick = (e) => {
                 if (
                     e.target.tagName === 'I' ||
                     e.target.closest('.chore-queue-check') ||
-                    e.target.closest('.chore-star-btn')
+                    e.target.closest('.chore-star-btn') ||
+                    e.target.closest('.swipe-actions')
                 ) return;
                 toggleChore(c.id);
             };
@@ -321,20 +456,14 @@ function updateUI() {
                 <div style="flex-grow: 1; font-family: var(--font-mono); font-size: 0.85rem;">
                     ${c.text}
                 </div>
-                <div style="display: flex; gap: 15px;">
-                    <i class="fas fa-edit" style="color: var(--text-muted);" onclick="editChore(${c.id})"></i>
-                    <i class="fas fa-trash" style="color: var(--danger);" onclick="deleteChore(${c.id})"></i>
+                <div class="swipe-actions" id="swipe-actions-${c.id}">
+                    <button class="swipe-btn swipe-edit" onclick="editChore(${c.id})"><i class="fas fa-edit"></i></button>
+                    <button class="swipe-btn swipe-delete" onclick="deleteChore(${c.id})"><i class="fas fa-trash"></i></button>
                 </div>
             `;
             if (lists[c.type]) lists[c.type].appendChild(li);
         });
     });
-
-    const total = chores.length;
-    const completed = chores.filter(c => c.completed).length;
-    const pct = total === 0 ? 0 : Math.round((completed / total) * 100);
-    document.getElementById('month-progress').style.width = `${pct}%`;
-    document.getElementById('days-left').innerText = `COMPLETION: ${pct}%`;
 
     const now = new Date();
     document.getElementById('current-date').innerText = now.toLocaleDateString('en-US', { weekday: 'short', month: '2-digit', day: '2-digit' }).replace(/\//g, '.');
@@ -351,16 +480,6 @@ window.togglePlanQueue = (id) => {
     }
     savePlan();
     updateUI();
-};
-
-window.movePlanItem = (id, dir) => {
-    const idx = dailyPlan.indexOf(id);
-    const newIdx = idx + dir;
-    if (newIdx < 0 || newIdx >= dailyPlan.length) return;
-    dailyPlan.splice(idx, 1);
-    dailyPlan.splice(newIdx, 0, id);
-    savePlan();
-    updateDailyPlan();
 };
 
 // STAR TOGGLE
@@ -402,6 +521,7 @@ form.addEventListener('submit', (e) => {
 
 window.toggleChore = (id) => {
     chores = chores.map(c => c.id === id ? { ...c, completed: !c.completed } : c);
+    if (navigator.vibrate) navigator.vibrate(40);
     saveAndSync();
 };
 
