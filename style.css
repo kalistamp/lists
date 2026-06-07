@@ -190,18 +190,32 @@ li.completed .custom-check {
   box-shadow: 0 -3px 0 0 var(--primary);
 }
 
-/* SYSTEM LOGS — dynamic height, no truncation */
+/* SYSTEM LOGS — contenteditable div, expands with content, no internal scroll */
 #notes-area {
-  height: auto;
+  display: block;
+  width: 100%;
   min-height: 160px;
+  height: auto;
   max-height: none;
-  overflow-y: visible;
-  resize: vertical;
+  overflow: visible;
   font-family: var(--font-main);
   font-size: 0.85rem;
   line-height: 1.6;
-  width: 100%;
-  display: block;
+  color: var(--text-main);
+  white-space: pre-wrap;
+  word-break: break-word;
+  outline: none;
+  border-bottom: 1px solid var(--border-dim);
+  padding-bottom: 8px;
+  caret-color: var(--primary);
+}
+#notes-area:focus {
+  border-bottom-color: var(--primary);
+}
+#notes-area:empty::before {
+  content: attr(data-placeholder);
+  color: var(--text-muted);
+  pointer-events: none;
 }
 
 /* FEATURE 2: Inline completion checkbox in Today's Plan */
