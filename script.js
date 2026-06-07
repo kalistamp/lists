@@ -346,37 +346,36 @@ let dragSrcId = null;
 function attachPlanDrag(li, id) {
     let longPressTimer = null;
     let dragActive = false;
+    let startX = 0;
     let startY = 0;
     let currentDropTarget = null;
+    const MOVE_CANCEL_THRESHOLD = 8; // px of movement that cancels the long-press
 
-    const startLongPress = (clientY) => {
-        startY = clientY;
+    li.addEventListener('touchstart', (e) => {
+        startX = e.touches[0].clientX;
+        startY = e.touches[0].clientY;
         longPressTimer = setTimeout(() => {
             dragActive = true;
             dragSrcId = id;
             li.classList.add('drag-source');
-            if (navigator.vibrate) navigator.vibrate([30, 20, 30]);
         }, 500);
-    };
-
-    const cancelLongPress = () => {
-        clearTimeout(longPressTimer);
-        if (!dragActive) return;
-        dragActive = false;
-        li.classList.remove('drag-source');
-        if (currentDropTarget) {
-            currentDropTarget.classList.remove('drag-over');
-            currentDropTarget = null;
-        }
-    };
-
-    li.addEventListener('touchstart', (e) => {
-        startLongPress(e.touches[0].clientY);
-    }, { passive: true });
+    }, { passive: false }); // must be false so touchmove can call preventDefault
 
     li.addEventListener('touchmove', (e) => {
-        if (!dragActive) { clearTimeout(longPressTimer); return; }
+        const dx = Math.abs(e.touches[0].clientX - startX);
+        const dy = Math.abs(e.touches[0].clientY - startY);
+
+        // Cancel the timer only if the finger has actually moved (not a micro-jitter)
+        if (!dragActive && (dx > MOVE_CANCEL_THRESHOLD || dy > MOVE_CANCEL_THRESHOLD)) {
+            clearTimeout(longPressTimer);
+            return;
+        }
+
+        if (!dragActive) return;
+
+        // Prevent page scroll while dragging
         e.preventDefault();
+
         const touch = e.touches[0];
         const el = document.elementFromPoint(touch.clientX, touch.clientY);
         const targetLi = el ? el.closest('.plan-list li') : null;
@@ -412,6 +411,17 @@ function attachPlanDrag(li, id) {
             currentDropTarget = null;
         }
         dragSrcId = null;
+    });
+
+    li.addEventListener('touchcancel', () => {
+        clearTimeout(longPressTimer);
+        dragActive = false;
+        dragSrcId = null;
+        li.classList.remove('drag-source');
+        if (currentDropTarget) {
+            currentDropTarget.classList.remove('drag-over');
+            currentDropTarget = null;
+        }
     });
 }
 
@@ -521,7 +531,6 @@ form.addEventListener('submit', (e) => {
 
 window.toggleChore = (id) => {
     chores = chores.map(c => c.id === id ? { ...c, completed: !c.completed } : c);
-    if (navigator.vibrate) navigator.vibrate(40);
     saveAndSync();
 };
 
@@ -581,7 +590,7 @@ async function saveToGist() {
             body: JSON.stringify({
                 files: {
                     [GIST_FILENAME]: {
-                        content: JSON.stringify({ chores, notes: notesArea.value }, null, 2)
+                        content: JSON.stringify({ chores, notes: notesArea.innerText }, null, 2)
                     }
                 }
             })
@@ -601,7 +610,7 @@ window.manualSync = async () => {
         const json = await res.json();
         const data = JSON.parse(json.files[GIST_FILENAME].content);
         chores = data.chores || [];
-        notesArea.value = data.notes || "";
+        notesArea.innerText = data.notes || "";
         updateUI();
         btn.innerHTML = '<i class="fas fa-check"></i> SYNC_OK';
     } catch(e) {
@@ -611,14 +620,14 @@ window.manualSync = async () => {
 };
 
 notesArea.addEventListener('input', () => {
-    localStorage.setItem('choreNotes', notesArea.value);
+    localStorage.setItem('choreNotes', notesArea.innerText);
     saveToGist();
 });
 
 function initApp() {
     checkMidnightReset();
     const savedNotes = localStorage.getItem('choreNotes');
-    if (savedNotes) notesArea.value = savedNotes;
+    if (savedNotes) notesArea.innerText = savedNotes;
     updateUI();
     window.manualSync();
 }
