@@ -143,19 +143,66 @@ li.completed .custom-check {
   min-width: 22px;
   flex-shrink: 0;
 }
-.plan-reorder { display: flex; flex-direction: column; gap: 2px; flex-shrink: 0; }
-.plan-reorder button {
-  background: transparent;
-  border: none;
-  color: var(--text-muted);
-  cursor: pointer;
-  font-size: 0.65rem;
-  padding: 2px 5px;
-  line-height: 1;
-  border-radius: 2px;
+/* SWIPE-LEFT ACTIONS */
+.chore-list li {
+  position: relative;
+  overflow: hidden;
+  transition: transform 0.2s ease;
 }
-.plan-reorder button:hover { color: var(--primary); }
-.plan-reorder button:disabled { opacity: 0.2; cursor: default; }
+.swipe-actions {
+  position: absolute;
+  right: 0;
+  top: 0;
+  height: 100%;
+  display: flex;
+  align-items: stretch;
+  transform: translateX(100%);
+  transition: transform 0.2s ease;
+  pointer-events: none;
+}
+.chore-list li.swiped .swipe-actions {
+  transform: translateX(0);
+  pointer-events: auto;
+}
+.swipe-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  border: none;
+  cursor: pointer;
+  font-size: 1rem;
+  color: #fff;
+}
+.swipe-edit { background: var(--primary); }
+.swipe-delete { background: var(--danger); }
+
+/* DRAG-AND-DROP PLAN STATES */
+.plan-list li {
+  transition: opacity 0.15s, box-shadow 0.15s;
+  touch-action: none;
+}
+.plan-list li.drag-source {
+  opacity: 0.4;
+  box-shadow: 0 0 0 2px var(--primary);
+}
+.plan-list li.drag-over {
+  box-shadow: 0 -3px 0 0 var(--primary);
+}
+
+/* SYSTEM LOGS — dynamic height, no truncation */
+#notes-area {
+  height: auto;
+  min-height: 160px;
+  max-height: none;
+  overflow-y: visible;
+  resize: vertical;
+  font-family: var(--font-main);
+  font-size: 0.85rem;
+  line-height: 1.6;
+  width: 100%;
+  display: block;
+}
 
 /* FEATURE 2: Inline completion checkbox in Today's Plan */
 .plan-complete-check {
@@ -266,11 +313,11 @@ li.completed .custom-check {
   .chore-list li { padding: 14px 12px; gap: 10px; }
   .chore-queue-check { width: 30px; height: 30px; }
   .plan-complete-check { width: 30px; height: 30px; }
-  .plan-reorder button { padding: 6px 9px; font-size: 0.75rem; }
   .plan-clock-icon { font-size: 0.9rem; padding: 6px; }
   .chore-star-btn { font-size: 1rem; padding: 4px 6px; }
   .btn { padding: 14px; font-size: 0.8rem; }
   .timeblock-box { max-width: 100%; margin: 0 16px; }
+  .swipe-btn { width: 64px; font-size: 1.1rem; }
 }
 
 .modal-overlay {
@@ -293,16 +340,10 @@ li.completed .custom-check {
 .modal-actions { display: flex; gap: 10px; margin-top: 25px; flex-wrap: wrap; }
 .error-msg { color: var(--danger); font-size: 0.7rem; margin-top: 10px; }
 
-/* Progress bar */
-.progress-container { margin-top: 8px; }
-.progress-bar { background: var(--border-dim); height: 3px; width: 100%; }
-.progress-fill { background: var(--primary); height: 100%; transition: width 0.4s ease; }
-.date-module { text-align: center; margin-bottom: 10px; }
-#current-date { font-size: 0.8rem; color: var(--text-muted); margin-bottom: 6px; }
-
 /* Header layout */
 .main-header { margin-bottom: 20px; }
 .list-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 15px; }
 .list-header h3 { margin-bottom: 0; }
 .module-header { margin-bottom: 12px; }
-#notes-area { min-height: 120px; resize: vertical; font-family: var(--font-main); font-size: 0.85rem; line-height: 1.6; }
+.date-module { text-align: center; margin-bottom: 10px; }
+#current-date { font-size: 0.8rem; color: var(--text-muted); }
