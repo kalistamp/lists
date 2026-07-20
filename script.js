@@ -58,7 +58,7 @@ const checkPwd = () => {
         document.getElementById('app-container').style.display = 'block';
         initApp();
     } else {
-        document.getElementById('login-error').innerText = 'ACCESS_DENIED';
+        document.getElementById('login-error').innerText = "That passkey didn't work.";
     }
 };
 
@@ -92,9 +92,9 @@ document.getElementById('save-settings-btn').addEventListener('click', () => {
 function confirmDelete(choreName) {
     return new Promise((resolve) => {
         const modal = document.getElementById('confirm-modal');
-        document.getElementById('confirm-title').innerText = 'DELETE_CHORE';
+        document.getElementById('confirm-title').innerText = 'Delete this chore?';
         document.getElementById('confirm-message').innerText =
-            `Are you sure you want to delete "${choreName}"?`;
+            `"${choreName}" will be removed for good.`;
         modal.style.display = 'flex';
 
         const yesBtn = document.getElementById('confirm-yes-btn');
@@ -187,12 +187,12 @@ function updateDailyPlan() {
 
     if (dailyPlan.length === 0) {
         emptyMsg.style.display = 'block';
-        countTag.innerText = '0 TASKS';
+        countTag.innerText = 'No tasks';
         return;
     }
 
     emptyMsg.style.display = 'none';
-    countTag.innerText = `${dailyPlan.length} TASK${dailyPlan.length > 1 ? 'S' : ''}`;
+    countTag.innerText = `${dailyPlan.length} task${dailyPlan.length > 1 ? 's' : ''}`;
 
     // Group chores by time block label for rendering.
     // Chores with no time block go into a null group (always rendered last).
@@ -263,16 +263,16 @@ function updateDailyPlan() {
 
             // Inline completion checkbox
             const checkClass = c.completed ? 'plan-complete-check done' : 'plan-complete-check';
-            const checkIcon = c.completed ? '<i class="fas fa-check" style="font-size:0.6rem;"></i>' : '';
+            const checkIcon = c.completed ? '<i class="fas fa-check"></i>' : '';
 
             li.innerHTML = `
                 <div class="${checkClass}" onclick="toggleChore(${id})" title="Toggle complete">
                     ${checkIcon}
                 </div>
                 <span class="plan-num">${String(idx + 1).padStart(2, '0')}.</span>
-                <div style="flex-grow: 1; font-family: var(--font-mono); font-size: 0.85rem;">${c.text}</div>
+                <div class="plan-text">${c.text}</div>
                 <span onclick="openTimeBlockModal(${id})">${blockIcon}</span>
-                <i class="fas fa-trash" style="color: var(--danger); font-size: 0.8rem;" onclick="deleteChore(${id})"></i>
+                <i class="fas fa-trash plan-trash" onclick="deleteChore(${id})"></i>
             `;
             ul.appendChild(li);
         });
@@ -457,13 +457,13 @@ function updateUI() {
 
             li.innerHTML = `
                 <div class="chore-queue-check ${isQueued ? 'queued' : ''}" onclick="togglePlanQueue(${c.id})" title="${isQueued ? 'Remove from today' : 'Add to today'}">
-                    ${isQueued ? '<i class="fas fa-check" style="font-size:0.6rem;"></i>' : ''}
+                    ${isQueued ? '<i class="fas fa-check"></i>' : ''}
                 </div>
                 <button class="chore-star-btn ${c.starred ? 'starred' : ''}" onclick="toggleStar(${c.id})" title="${c.starred ? 'Unstar' : 'Star'}">
                     <i class="fa${c.starred ? 's' : 'r'} fa-star"></i>
                 </button>
                 <div class="custom-check"></div>
-                <div style="flex-grow: 1; font-family: var(--font-mono); font-size: 0.85rem;">
+                <div class="chore-text">
                     ${c.text}
                 </div>
                 <div class="swipe-actions" id="swipe-actions-${c.id}">
@@ -476,7 +476,7 @@ function updateUI() {
     });
 
     const now = new Date();
-    document.getElementById('current-date').innerText = now.toLocaleDateString('en-US', { weekday: 'short', month: '2-digit', day: '2-digit' }).replace(/\//g, '.');
+    document.getElementById('current-date').innerText = now.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
 
     updateDailyPlan();
 }
@@ -519,8 +519,8 @@ form.addEventListener('submit', (e) => {
     if (editState.isEditing) {
         chores = chores.map(c => c.id === editState.id ? { ...c, text: choreText, type: typeInput.value } : c);
         editState = { isEditing: false, id: null };
-        document.getElementById('form-title').innerText = 'ADD_TASK';
-        document.getElementById('submit-btn').innerText = 'COMMIT_CHORE';
+        document.getElementById('form-title').innerText = 'Add task';
+        document.getElementById('submit-btn').innerText = 'Add chore';
     } else {
         chores.push({ text: choreText, type: typeInput.value, completed: false, starred: false, id: Date.now() });
     }
@@ -547,8 +547,8 @@ window.editChore = (id) => {
     textInput.value = c.text;
     typeInput.value = c.type;
     editState = { isEditing: true, id };
-    document.getElementById('form-title').innerText = 'EDIT_TASK';
-    document.getElementById('submit-btn').innerText = 'UPDATE_CHORE';
+    document.getElementById('form-title').innerText = 'Edit task';
+    document.getElementById('submit-btn').innerText = 'Update chore';
     window.scrollTo({ top: 0, behavior: 'smooth' });
 };
 
@@ -601,7 +601,7 @@ async function saveToGist() {
 window.manualSync = async () => {
     if (!GITHUB_TOKEN || !GIST_ID) return;
     const btn = document.getElementById('sync-btn');
-    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> SYNCING...';
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Syncing…';
     try {
         const res = await fetch(`https://api.github.com/gists/${GIST_ID}`, {
             headers: { 'Authorization': `token ${GITHUB_TOKEN}` },
@@ -612,11 +612,11 @@ window.manualSync = async () => {
         chores = data.chores || [];
         notesArea.innerText = data.notes || "";
         updateUI();
-        btn.innerHTML = '<i class="fas fa-check"></i> SYNC_OK';
+        btn.innerHTML = '<i class="fas fa-check"></i> Synced';
     } catch(e) {
-        btn.innerHTML = '<i class="fas fa-exclamation-triangle"></i> ERR';
+        btn.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Sync failed';
     }
-    setTimeout(() => { btn.innerHTML = '<i class="fas fa-cloud"></i> CLOUD_SYNC'; }, 2000);
+    setTimeout(() => { btn.innerHTML = '<i class="fas fa-cloud"></i> Sync'; }, 2000);
 };
 
 notesArea.addEventListener('input', () => {
