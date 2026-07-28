@@ -32,6 +32,17 @@
                 <label>Gist ID</label>
                 <input type="text" id="gist-id-input" placeholder="Paste your gist ID">
             </div>
+            <hr class="settings-divider">
+            <div class="field-group">
+                <label>Gemini API key</label>
+                <input type="password" id="gemini-key-input" placeholder="AIza…">
+                <p class="field-hint">Free key from <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a>. Stored only in this browser.</p>
+            </div>
+            <div class="field-group">
+                <label>Gemini model</label>
+                <input type="text" id="gemini-model-input" placeholder="gemini-2.5-flash">
+                <p class="field-hint">Swap this if the model id changes or you hit quota on the default.</p>
+            </div>
             <div class="modal-actions">
                 <button class="btn btn-primary" id="save-settings-btn">Save</button>
                 <button class="btn btn-ghost" id="close-settings-btn">Cancel</button>
@@ -96,6 +107,10 @@
                             <option value="oneoff">One-off</option>
                         </select>
                     </div>
+                    <div class="form-control">
+                        <label>How long <span class="label-optional">optional</span></label>
+                        <input type="number" id="duration" min="5" max="300" step="5" placeholder="Minutes — leave blank and the planner will estimate">
+                    </div>
                     <button class="btn btn-primary" id="submit-btn" type="submit">Add chore</button>
                 </form>
             </section>
@@ -112,6 +127,53 @@
                 </button>
             </div>
             <span id="sync-timestamp" class="mono-label sync-tag"></span>
+
+            <section id="assistant-module" class="list-module assistant-module">
+                <div class="list-header">
+                    <h3><i class="fas fa-wand-magic-sparkles"></i> Planner</h3>
+                    <span id="agent-status" class="mono-label"></span>
+                </div>
+
+                <div class="agent-grid">
+                    <div class="form-control">
+                        <label>Starting at</label>
+                        <input type="time" id="agent-wake-time">
+                    </div>
+                    <div class="form-control">
+                        <label>Wind down by</label>
+                        <input type="time" id="agent-end-time">
+                    </div>
+                    <div class="form-control">
+                        <label>Cushion</label>
+                        <select id="agent-cushion">
+                            <option value="10">10 min</option>
+                            <option value="15" selected>15 min</option>
+                            <option value="20">20 min</option>
+                            <option value="30">30 min</option>
+                        </select>
+                    </div>
+                    <div class="form-control">
+                        <label>Day fullness</label>
+                        <select id="agent-load">
+                            <option value="45">Gentle</option>
+                            <option value="65" selected>Balanced</option>
+                            <option value="80">Full</option>
+                        </select>
+                    </div>
+                </div>
+
+                <button class="btn btn-primary" id="agent-plan-btn">
+                    <i class="fas fa-wand-magic-sparkles"></i> Plan my day
+                </button>
+
+                <div class="agent-ask">
+                    <input type="text" id="agent-prompt" placeholder="or ask — “shift everything an hour later”">
+                    <button class="btn btn-ghost" id="agent-ask-btn">Ask</button>
+                </div>
+
+                <div id="agent-log" class="agent-log"></div>
+                <button class="btn btn-ghost agent-clear-btn" id="agent-clear-log-btn">Clear log</button>
+            </section>
 
             <section id="section-daily-plan" class="list-module daily-plan-module">
                 <div class="list-header">
@@ -148,6 +210,8 @@
         </main>
     </div>
 
+    <script src="./scheduler.js"></script>
     <script src="./script.js"></script>
+    <script src="./agent.js"></script>
 </body>
 </html>

@@ -544,6 +544,174 @@ li.completed .custom-check {
   box-shadow: 0 -3px 0 0 var(--clay);
 }
 
+/* ============================================================
+   PLANNER — the agent panel
+   Sits above Today's plan and writes into it. Styled as a quieter
+   sibling of the plan module: same warmth, less weight, so it
+   reads as the tool rather than the result.
+   ============================================================ */
+.assistant-module {
+  background: linear-gradient(180deg, var(--surface) 0%, #f7f1e6 100%);
+  box-shadow: var(--shadow-sm), inset 0 0 0 1px var(--line);
+}
+.assistant-module .list-header h3 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 1.15rem;
+  letter-spacing: -0.01em;
+  text-transform: none;
+  color: var(--ink);
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.assistant-module .list-header h3 i { color: var(--clay); font-size: 0.95rem; }
+
+#agent-status { color: var(--clay-deep); font-weight: 600; }
+
+.agent-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+  margin-bottom: 18px;
+}
+.agent-grid .form-control { margin-bottom: 0; }
+
+.label-optional {
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  color: var(--ink-faint);
+  text-transform: none;
+}
+
+input[type="number"] {
+  width: 100%;
+  font-family: var(--font-body);
+  font-size: 0.95rem;
+  color: var(--ink);
+  background: var(--surface-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  padding: 12px 14px;
+  transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+}
+input[type="number"]:focus {
+  outline: none;
+  border-color: var(--clay);
+  box-shadow: 0 0 0 3px var(--clay-wash);
+}
+
+.btn:disabled { opacity: 0.55; cursor: not-allowed; transform: none; }
+.btn:disabled:hover { box-shadow: var(--shadow-sm); }
+
+/* Freeform ask row */
+.agent-ask {
+  display: flex;
+  gap: 10px;
+  margin-top: 12px;
+}
+.agent-ask input { flex: 1; min-width: 0; }
+.agent-ask .btn-ghost { flex: 0 0 auto; }
+
+/* ---------- Transcript ---------- */
+.agent-log {
+  margin-top: 18px;
+  max-height: 420px;
+  overflow-y: auto;
+}
+.agent-log:empty { margin-top: 0; }
+
+.agent-entry {
+  font-family: var(--font-body);
+  font-size: 0.88rem;
+  line-height: 1.5;
+  padding: 9px 0;
+  border-top: 1px solid var(--line);
+  word-break: break-word;
+}
+.agent-entry:first-child { border-top: none; }
+
+.agent-entry-label {
+  display: block;
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin-bottom: 4px;
+}
+
+.agent-user { color: var(--ink-soft); }
+
+.agent-answer .agent-entry-label { color: var(--clay-deep); }
+.agent-answer-body {
+  white-space: pre-wrap;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+/* One line per tool call — deliberately small; it's a receipt, not the story */
+.agent-tool {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  font-size: 0.78rem;
+  color: var(--ink-faint);
+  padding: 5px 0;
+  border-top: none;
+}
+.agent-tool i { font-size: 0.65rem; color: var(--clay-soft); }
+.agent-tool-name {
+  font-weight: 600;
+  color: var(--ink-soft);
+  flex-shrink: 0;
+}
+.agent-tool-summary { color: var(--ink-faint); }
+
+.agent-error {
+  color: var(--danger);
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+
+.agent-clear-btn {
+  width: 100%;
+  flex: none;
+  margin-top: 14px;
+  font-size: 0.75rem;
+  padding: 9px 14px;
+}
+.agent-log:empty ~ .agent-clear-btn { display: none; }
+
+/* Duration tag on chore rows */
+.dur-tag {
+  display: inline-block;
+  margin-left: 8px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--ink-faint);
+  background: var(--bg-tint);
+  padding: 2px 7px;
+  border-radius: var(--r-pill);
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+/* Settings modal additions */
+.settings-divider {
+  border: none;
+  border-top: 1px solid var(--line);
+  margin: 24px 0 20px;
+}
+.field-hint {
+  font-size: 0.74rem;
+  line-height: 1.45;
+  color: var(--ink-faint);
+  margin-top: 6px;
+}
+.field-hint a { color: var(--clay-deep); }
+
 /* ---------- Notes ---------- */
 .module-header { margin-bottom: 14px; }
 #notes-area {
@@ -672,6 +840,13 @@ li.completed .custom-check {
   .swipe-btn { width: 64px; font-size: 1.1rem; }
   .main-header { flex-direction: column; align-items: flex-start; gap: 4px; }
   .date-module { text-align: left; }
+  .agent-ask { flex-direction: column; }
+  .agent-ask .btn-ghost { width: 100%; }
+  .agent-log { max-height: 320px; }
+}
+
+@media (max-width: 380px) {
+  .agent-grid { grid-template-columns: 1fr; }
 }
 
 /* ---------- A11y / polish ---------- */

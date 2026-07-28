@@ -7,7 +7,11 @@ let GIST_ID = localStorage.getItem('gistId') || "";
 const form = document.getElementById('form');
 const textInput = document.getElementById('text');
 const typeInput = document.getElementById('type');
+const durationInput = document.getElementById('duration');
 const notesArea = document.getElementById('notes-area');
+
+// Fallback estimates (minutes) when a chore has no durationMin yet.
+const DEFAULT_DURATION = { daily: 30, errands: 45, oneoff: 60 };
 
 const lists = {
     daily: document.getElementById('list-daily'),
@@ -69,6 +73,9 @@ document.getElementById('password-input').addEventListener('keydown', e => { if 
 window.openSettings = () => {
     document.getElementById('github-token-input').value = GITHUB_TOKEN;
     document.getElementById('gist-id-input').value = GIST_ID;
+    document.getElementById('gemini-key-input').value = localStorage.getItem('geminiKey') || '';
+    document.getElementById('gemini-model-input').value =
+        localStorage.getItem('geminiModel') || (window.ChoreAgent ? window.ChoreAgent.defaultModel : '');
     document.getElementById('settings-modal').style.display = 'flex';
 };
 
@@ -81,6 +88,14 @@ document.getElementById('save-settings-btn').addEventListener('click', () => {
     GIST_ID = document.getElementById('gist-id-input').value.trim();
     localStorage.setItem('githubToken', GITHUB_TOKEN);
     localStorage.setItem('gistId', GIST_ID);
+
+    if (window.ChoreAgent) {
+        window.ChoreAgent.setCredentials(
+            document.getElementById('gemini-key-input').value.trim(),
+            document.getElementById('gemini-model-input').value.trim()
+        );
+    }
+
     document.getElementById('settings-modal').style.display = 'none';
     if (GITHUB_TOKEN && GIST_ID) window.manualSync();
 });
@@ -172,6 +187,21 @@ function formatTime(t) {
     const ampm = h >= 12 ? 'PM' : 'AM';
     h = h % 12 || 12;
     return `${h}:${m} ${ampm}`;
+}
+
+// 90 → "1h 30m", 45 → "45m"
+function formatDuration(mins) {
+    if (!mins) return '';
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    if (h && m) return `${h}h ${m}m`;
+    if (h) return `${h}h`;
+    return `${m}m`;
+}
+
+// Effective duration for scheduling: explicit value, else category default
+function effectiveDuration(chore) {
+    return chore.durationMin || DEFAULT_DURATION[chore.type] || 30;
 }
 
 // ─────────────────────────────────────────────
@@ -465,6 +495,7 @@ function updateUI() {
                 <div class="custom-check"></div>
                 <div class="chore-text">
                     ${c.text}
+                    ${c.durationMin ? `<span class="dur-tag">${formatDuration(c.durationMin)}</span>` : ''}
                 </div>
                 <div class="swipe-actions" id="swipe-actions-${c.id}">
                     <button class="swipe-btn swipe-edit" onclick="editChore(${c.id})"><i class="fas fa-edit"></i></button>
@@ -516,16 +547,21 @@ form.addEventListener('submit', (e) => {
     const choreText = textInput.value.trim();
     if (!choreText) return;
 
+    // Blank duration stays undefined so the agent can estimate it later
+    const rawDuration = parseInt(durationInput.value, 10);
+    const durationMin = Number.isFinite(rawDuration) && rawDuration > 0 ? rawDuration : undefined;
+
     if (editState.isEditing) {
-        chores = chores.map(c => c.id === editState.id ? { ...c, text: choreText, type: typeInput.value } : c);
+        chores = chores.map(c => c.id === editState.id ? { ...c, text: choreText, type: typeInput.value, durationMin } : c);
         editState = { isEditing: false, id: null };
         document.getElementById('form-title').innerText = 'Add task';
         document.getElementById('submit-btn').innerText = 'Add chore';
     } else {
-        chores.push({ text: choreText, type: typeInput.value, completed: false, starred: false, id: Date.now() });
+        chores.push({ text: choreText, type: typeInput.value, completed: false, starred: false, durationMin, id: Date.now() });
     }
 
     textInput.value = '';
+    durationInput.value = '';
     saveAndSync();
 });
 
@@ -546,6 +582,7 @@ window.editChore = (id) => {
     const c = chores.find(chore => chore.id === id);
     textInput.value = c.text;
     typeInput.value = c.type;
+    durationInput.value = c.durationMin || '';
     editState = { isEditing: true, id };
     document.getElementById('form-title').innerText = 'Edit task';
     document.getElementById('submit-btn').innerText = 'Update chore';
@@ -590,7 +627,12 @@ async function saveToGist() {
             body: JSON.stringify({
                 files: {
                     [GIST_FILENAME]: {
-                        content: JSON.stringify({ chores, notes: notesArea.innerText }, null, 2)
+                        content: JSON.stringify({
+                            chores,
+                            notes: notesArea.innerText,
+                            dailyPlan,
+                            timeBlocks
+                        }, null, 2)
                     }
                 }
             })
@@ -611,6 +653,17 @@ window.manualSync = async () => {
         const data = JSON.parse(json.files[GIST_FILENAME].content);
         chores = data.chores || [];
         notesArea.innerText = data.notes || "";
+        // Only adopt plan/blocks when the gist actually carries them, so older
+        // gists written before this feature don't wipe a schedule built locally.
+        if (Array.isArray(data.dailyPlan)) {
+            dailyPlan = data.dailyPlan;
+            savePlan();
+        }
+        if (data.timeBlocks && typeof data.timeBlocks === 'object') {
+            timeBlocks = data.timeBlocks;
+            saveTimeBlocks();
+        }
+        localStorage.setItem('choreData', JSON.stringify(chores));
         updateUI();
         btn.innerHTML = '<i class="fas fa-check"></i> Synced';
     } catch(e) {
@@ -624,10 +677,54 @@ notesArea.addEventListener('input', () => {
     saveToGist();
 });
 
+// ─────────────────────────────────────────────
+// APP BRIDGE
+// The one seam agent.js is allowed to touch. Keeping this explicit means the
+// agent never reaches into module internals, and every mutation it makes goes
+// through the same persistence path as a human click.
+// ─────────────────────────────────────────────
+window.ChoresApp = {
+    getChores: () => chores.map(c => ({ ...c })),
+    getPlan: () => [...dailyPlan],
+    getTimeBlocks: () => JSON.parse(JSON.stringify(timeBlocks)),
+    getNotes: () => notesArea.innerText,
+
+    setChores(next) {
+        chores = next;
+        localStorage.setItem('choreData', JSON.stringify(chores));
+    },
+    setPlan(next) {
+        dailyPlan = next;
+        savePlan();
+    },
+    setTimeBlocks(next) {
+        timeBlocks = next;
+        saveTimeBlocks();
+    },
+    appendNote(text) {
+        const existing = notesArea.innerText.trimEnd();
+        notesArea.innerText = existing ? `${existing}\n${text}` : text;
+        localStorage.setItem('choreNotes', notesArea.innerText);
+    },
+
+    // Re-render and push everything to the gist in one call
+    commit() {
+        saveAndSync();
+    },
+
+    // Reuse the human-facing confirmation modal for destructive agent actions
+    confirmDelete,
+    effectiveDuration,
+    formatTime,
+    formatDuration,
+    defaultDurations: DEFAULT_DURATION
+};
+
 function initApp() {
     checkMidnightReset();
     const savedNotes = localStorage.getItem('choreNotes');
     if (savedNotes) notesArea.innerText = savedNotes;
     updateUI();
     window.manualSync();
+    if (window.ChoreAgent) window.ChoreAgent.init();
 }
