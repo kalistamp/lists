@@ -3,7 +3,6 @@
    A warm, quiet, paper-desk aesthetic. Terracotta / ochre / sage
    on oat, Fraunces display + Hanken Grotesk body. Soft shadows
    instead of hard borders, generous spacing, slow easing.
-   NOTE: class & id names are unchanged so the JS keeps working.
    ============================================================ */
 
 :root {
@@ -59,7 +58,7 @@
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
-html { -webkit-text-size-adjust: 100%; }
+html { -webkit-text-size-adjust: 100%; overflow-x: hidden; }
 
 body.theme-clay {
   background:
@@ -73,13 +72,20 @@ body.theme-clay {
   min-height: 100vh;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+  overflow-x: hidden;
 }
 
 /* ---------- Layout shell ---------- */
 .app-container {
+  width: 100%;
   max-width: 640px;
   margin: 0 auto;
   padding: 40px 22px 96px;
+}
+
+.main-content {
+  width: 100%;
+  min-width: 0;
 }
 
 .panel,
@@ -90,8 +96,10 @@ body.theme-clay {
   border: none;
   border-radius: var(--r-lg);
   box-shadow: var(--shadow-sm);
-  padding: 28px;
+  padding: 24px;
   margin-bottom: 22px;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 /* ---------- Typography roles ---------- */
@@ -120,7 +128,6 @@ h3 {
   color: var(--ink-faint);
 }
 
-/* Caption / small labels (was .mono-label) */
 .mono-label {
   font-family: var(--font-body);
   font-size: 0.72rem;
@@ -145,8 +152,86 @@ h3 {
   letter-spacing: 0.01em;
 }
 
-/* ---------- Forms ---------- */
-#form-title { margin-bottom: 18px; }
+/* ---------- COLLAPSIBLE ADD TASK SECTION (Requirement 3) ---------- */
+.collapsible-module {
+  transition: box-shadow var(--dur) var(--ease);
+}
+
+.collapsible-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  user-select: none;
+  padding: 2px 0;
+}
+
+.collapsible-title {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.collapsible-title h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--ink);
+  font-family: var(--font-display);
+  font-size: 1.15rem;
+  text-transform: none;
+  letter-spacing: -0.01em;
+}
+
+.collapsible-title h3 i {
+  color: var(--clay);
+  font-size: 1.05rem;
+}
+
+.collapsible-sub {
+  font-size: 0.72rem;
+  color: var(--ink-faint);
+  font-weight: 500;
+}
+
+.btn-icon-ghost {
+  background: transparent;
+  border: none;
+  color: var(--ink-soft);
+  font-size: 1rem;
+  cursor: pointer;
+  padding: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  transition: background var(--dur) var(--ease), transform var(--dur) var(--ease);
+}
+.btn-icon-ghost:hover {
+  background: var(--bg-tint);
+  color: var(--clay-deep);
+}
+
+.toggle-chevron {
+  transition: transform var(--dur) var(--ease);
+  transform: rotate(0deg);
+}
+
+.collapsible-content {
+  margin-top: 18px;
+  transition: all var(--dur) var(--ease);
+}
+
+.collapsible-content.collapsed {
+  display: none;
+}
+
+.form-actions-row {
+  display: flex;
+  gap: 10px;
+  margin-top: 18px;
+}
 
 .form-control { margin-bottom: 16px; }
 
@@ -165,9 +250,12 @@ input[type="text"],
 input[type="password"],
 input[type="time"],
 input[type="date"],
+input[type="number"],
 select,
 textarea {
   width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
   font-family: var(--font-body);
   font-size: 0.95rem;
   color: var(--ink);
@@ -206,11 +294,11 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   cursor: pointer;
 }
 
-/* Due date + time sit side by side, wrapping on very narrow screens */
 .due-inputs {
   display: flex;
   gap: 10px;
   flex-wrap: wrap;
+  width: 100%;
 }
 .due-inputs input {
   flex: 1 1 130px;
@@ -277,6 +365,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   gap: 10px;
   margin-bottom: 12px;
   flex-wrap: wrap;
+  width: 100%;
 }
 
 .sync-tag {
@@ -296,8 +385,8 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 }
 .list-header h3 { margin: 0; }
 
-/* ---------- Chore rows ---------- */
-.chore-list { list-style: none; }
+/* ---------- Chore rows & Desktop Actions (Requirement 2) ---------- */
+.chore-list { list-style: none; padding: 0; margin: 0; }
 
 .chore-list li {
   position: relative;
@@ -306,20 +395,20 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   border: 1px solid var(--line);
   border-radius: var(--r-md);
   margin-bottom: 10px;
-  padding: 14px 16px;
+  padding: 12px 14px;
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 10px;
   cursor: pointer;
   box-shadow: var(--shadow-sm);
   transition: transform 200ms var(--ease),
               box-shadow var(--dur) var(--ease),
-              opacity var(--dur) var(--ease),
-              filter var(--dur) var(--ease);
+              opacity var(--dur) var(--ease);
+  width: 100%;
+  box-sizing: border-box;
 }
 .chore-list li:hover { box-shadow: var(--shadow-md); }
 
-/* Category is carried by a soft rounded dot + faint wash, not a hard bar */
 .chore-list li::before {
   content: "";
   width: 9px;
@@ -332,15 +421,12 @@ li.priority-daily::before   { background: var(--daily); }
 li.priority-errands::before { background: var(--errands); }
 li.priority-oneoff::before  { background: var(--oneoff); }
 
-li.priority-daily   { background: linear-gradient(var(--surface-raised), var(--surface-raised)) padding-box, var(--surface-raised); }
 li.priority-daily   { box-shadow: var(--shadow-sm), inset 3px 0 0 rgba(191,91,61,0.16); }
 li.priority-errands { box-shadow: var(--shadow-sm), inset 3px 0 0 rgba(201,138,46,0.18); }
 li.priority-oneoff  { box-shadow: var(--shadow-sm), inset 3px 0 0 rgba(124,146,104,0.20); }
 
 li.completed {
   opacity: 0.5;
-  filter: none;
-  transform: none;
   box-shadow: none;
   background: transparent;
   border-color: transparent;
@@ -359,9 +445,11 @@ li.completed .plan-text {
   font-size: 0.95rem;
   line-height: 1.4;
   color: var(--ink);
+  min-width: 0;
+  word-break: break-word;
 }
 
-/* Decorative complete circle on the main lists */
+/* Custom check circle */
 .custom-check {
   width: 20px;
   height: 20px;
@@ -375,7 +463,7 @@ li.completed .custom-check {
   border-color: var(--clay);
 }
 
-/* Queue (add-to-today) checkbox */
+/* Queue check */
 .chore-queue-check {
   width: 22px; height: 22px;
   border: 1.5px solid var(--line-strong);
@@ -394,7 +482,7 @@ li.completed .custom-check {
   border-color: var(--clay);
 }
 
-/* Star */
+/* Star button */
 .chore-star-btn {
   background: transparent;
   border: none;
@@ -405,10 +493,37 @@ li.completed .custom-check {
   flex-shrink: 0;
   transition: color var(--dur) var(--ease), transform 160ms var(--ease);
 }
-.chore-star-btn:hover { color: var(--ochre); transform: scale(1.12); }
+.chore-star-btn:hover { color: var(--errands); transform: scale(1.12); }
 .chore-star-btn.starred { color: var(--errands); }
 
-/* ---------- Swipe actions ---------- */
+/* DESKTOP & ALWAYS-VISIBLE CHORE ACTIONS (Requirement 2) */
+.chore-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.chore-action-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 6px 8px;
+  border-radius: var(--r-sm);
+  color: var(--ink-faint);
+  font-size: 0.85rem;
+  transition: color var(--dur) var(--ease), background var(--dur) var(--ease);
+}
+
+.chore-action-btn:hover {
+  background: var(--bg-tint);
+}
+
+.chore-edit-btn:hover { color: var(--clay-deep); }
+.chore-delete-btn:hover { color: var(--danger); }
+
+/* Swipe actions on mobile */
 .swipe-actions {
   position: absolute;
   right: 0; top: 0;
@@ -437,11 +552,10 @@ li.completed .custom-check {
 .swipe-delete { background: var(--danger); }
 
 /* ============================================================
-   TODAY'S PLAN — the signature module (the warm desk centrepiece)
+   TODAY'S PLAN (Requirement 1 - Reordering)
    ============================================================ */
 .daily-plan-module {
-  background:
-    linear-gradient(180deg, #fffdf9 0%, var(--surface-raised) 100%);
+  background: linear-gradient(180deg, #fffdf9 0%, var(--surface-raised) 100%);
   box-shadow: var(--shadow-md), inset 0 0 0 1px var(--clay-soft);
   border-radius: var(--r-lg);
 }
@@ -472,15 +586,14 @@ li.completed .custom-check {
   padding: 22px 8px;
 }
 
-.plan-list { list-style: none; }
-.plan-list li { cursor: default; }
+.plan-list { list-style: none; padding: 0; margin: 0; }
 
 .plan-num {
   font-family: var(--font-display);
   font-weight: 600;
   font-size: 0.95rem;
   color: var(--clay);
-  min-width: 26px;
+  min-width: 24px;
   flex-shrink: 0;
   font-variant-numeric: tabular-nums;
 }
@@ -489,11 +602,45 @@ li.completed .custom-check {
   font-family: var(--font-body);
   font-size: 0.95rem;
   color: var(--ink);
+  min-width: 0;
+  word-break: break-word;
 }
 
-/* Inline completion circle in the plan */
+.plan-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.plan-reorder {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.plan-arrow {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--ink-faint);
+  font-size: 0.65rem;
+  padding: 2px 4px;
+  border-radius: 4px;
+  line-height: 1;
+  transition: color var(--dur) var(--ease), background var(--dur) var(--ease);
+}
+.plan-arrow:hover:not(:disabled) {
+  color: var(--clay-deep);
+  background: var(--bg-tint);
+}
+.plan-arrow:disabled {
+  opacity: 0.25;
+  cursor: default;
+}
+
 .plan-complete-check {
-  width: 26px; height: 26px;
+  width: 24px; height: 24px;
   border: 2px solid var(--line-strong);
   border-radius: 50%;
   flex-shrink: 0;
@@ -509,7 +656,6 @@ li.completed .custom-check {
   border-color: var(--success);
 }
 
-/* Time-block group headers */
 .timeblock-header {
   font-family: var(--font-body);
   font-size: 0.72rem;
@@ -517,7 +663,7 @@ li.completed .custom-check {
   color: var(--clay-deep);
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  padding: 14px 4px 8px;
+  padding: 12px 4px 6px;
   margin-top: 8px;
   border-top: 1px solid var(--line);
   display: flex;
@@ -537,18 +683,30 @@ li.completed .custom-check {
 .plan-clock-icon:hover { color: var(--clay); }
 .plan-clock-icon.assigned { color: var(--clay); }
 
+.plan-icon-btn {
+  background: transparent;
+  border: none;
+  color: var(--ink-faint);
+  font-size: 0.8rem;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  transition: color var(--dur) var(--ease);
+}
+.plan-icon-btn:hover { color: var(--clay-deep); }
+
 .plan-trash {
   color: var(--danger);
   font-size: 0.82rem;
   cursor: pointer;
   flex-shrink: 0;
   opacity: 0.7;
+  padding: 4px;
   transition: opacity var(--dur) var(--ease);
 }
 .plan-trash:hover { opacity: 1; }
 
-/* Drag-and-drop states */
-.plan-list li { transition: opacity 0.15s, box-shadow 0.15s; touch-action: none; }
+.plan-list li { transition: opacity 0.15s, box-shadow 0.15s; }
 .plan-list li.drag-source {
   opacity: 0.4;
   box-shadow: 0 0 0 2px var(--clay);
@@ -558,10 +716,7 @@ li.completed .custom-check {
 }
 
 /* ============================================================
-   PLANNER — the agent panel
-   Sits above Today's plan and writes into it. Styled as a quieter
-   sibling of the plan module: same warmth, less weight, so it
-   reads as the tool rather than the result.
+   PLANNER / AGENT MODULE (Requirement 5 - Mobile Fixes)
    ============================================================ */
 .assistant-module {
   background: linear-gradient(180deg, var(--surface) 0%, #f7f1e6 100%);
@@ -582,18 +737,15 @@ li.completed .custom-check {
 
 #agent-status { color: var(--clay-deep); font-weight: 600; }
 
+/* Fixed grid sizing so controls never get clipped on mobile */
 .agent-grid {
   display: grid;
-  /* minmax(0, 1fr) lets columns shrink below the intrinsic width of a time
-     input or select, which is what was pushing the right column off-screen on
-     narrow phones. */
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
   margin-bottom: 18px;
+  width: 100%;
 }
-.agent-grid .form-control { margin-bottom: 0; min-width: 0; }
-.agent-grid .form-control input,
-.agent-grid .form-control select { max-width: 100%; }
+.agent-grid .form-control { margin-bottom: 0; min-width: 0; width: 100%; }
 
 .label-optional {
   font-weight: 500;
@@ -602,40 +754,23 @@ li.completed .custom-check {
   text-transform: none;
 }
 
-input[type="number"] {
-  width: 100%;
-  font-family: var(--font-body);
-  font-size: 0.95rem;
-  color: var(--ink);
-  background: var(--surface-raised);
-  border: 1px solid var(--line);
-  border-radius: var(--r-sm);
-  padding: 12px 14px;
-  transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
-}
-input[type="number"]:focus {
-  outline: none;
-  border-color: var(--clay);
-  box-shadow: 0 0 0 3px var(--clay-wash);
-}
-
 .btn:disabled { opacity: 0.55; cursor: not-allowed; transform: none; }
-.btn:disabled:hover { box-shadow: var(--shadow-sm); }
 
-/* Freeform ask row */
 .agent-ask {
   display: flex;
   gap: 10px;
   margin-top: 12px;
+  width: 100%;
 }
 .agent-ask input { flex: 1; min-width: 0; }
 .agent-ask .btn-ghost { flex: 0 0 auto; }
 
-/* ---------- Transcript ---------- */
+/* Transcript */
 .agent-log {
   margin-top: 18px;
   max-height: 420px;
   overflow-y: auto;
+  width: 100%;
 }
 .agent-log:empty { margin-top: 0; }
 
@@ -668,7 +803,6 @@ input[type="number"]:focus {
   font-variant-numeric: tabular-nums;
 }
 
-/* One line per tool call — deliberately small; it's a receipt, not the story */
 .agent-tool {
   display: flex;
   align-items: baseline;
@@ -701,10 +835,10 @@ input[type="number"]:focus {
 }
 .agent-log:empty ~ .agent-clear-btn { display: none; }
 
-/* Duration tag on chore rows */
+/* Chips */
 .dur-tag {
   display: inline-block;
-  margin-left: 8px;
+  margin-left: 6px;
   font-size: 0.68rem;
   font-weight: 600;
   letter-spacing: 0.04em;
@@ -716,10 +850,9 @@ input[type="number"]:focus {
   white-space: nowrap;
 }
 
-/* Urgency chip — colour tracks the priority ladder so it reads at a glance */
 .urgency-tag {
   display: inline-block;
-  margin-left: 8px;
+  margin-left: 6px;
   font-size: 0.62rem;
   font-weight: 700;
   letter-spacing: 0.07em;
@@ -734,10 +867,9 @@ input[type="number"]:focus {
 .urgency-high   { color: #fff8f2; background: var(--errands); }
 .urgency-urgent { color: #fff; background: var(--danger); }
 
-/* Due-date chip — turns red once the deadline is past */
 .due-tag {
   display: inline-block;
-  margin-left: 8px;
+  margin-left: 6px;
   font-size: 0.66rem;
   font-weight: 600;
   letter-spacing: 0.02em;
@@ -750,9 +882,8 @@ input[type="number"]:focus {
 }
 .due-tag i { font-size: 0.58rem; margin-right: 2px; opacity: 0.75; }
 .due-tag.overdue { color: #fff; background: var(--danger); }
-.due-tag.overdue i { opacity: 0.9; }
 
-/* Settings modal additions */
+/* Settings Modal */
 .settings-divider {
   border: none;
   border-top: 1px solid var(--line);
@@ -766,7 +897,7 @@ input[type="number"]:focus {
 }
 .field-hint a { color: var(--clay-deep); }
 
-/* ---------- Notes ---------- */
+/* Notes */
 .module-header { margin-bottom: 14px; }
 #notes-area {
   display: block;
@@ -797,7 +928,7 @@ input[type="number"]:focus {
   pointer-events: none;
 }
 
-/* ---------- Login + modals ---------- */
+/* Modals */
 #login-overlay {
   position: fixed;
   inset: 0;
@@ -805,9 +936,7 @@ input[type="number"]:focus {
   align-items: center;
   justify-content: center;
   padding: 22px;
-  background:
-    radial-gradient(900px 500px at 50% -10%, #f7f1e6 0%, transparent 60%),
-    var(--bg);
+  background: radial-gradient(900px 500px at 50% -10%, #f7f1e6 0%, transparent 60%), var(--bg);
   z-index: 2000;
 }
 
@@ -828,9 +957,10 @@ input[type="number"]:focus {
   border: none;
   border-radius: var(--r-lg);
   box-shadow: var(--shadow-lg);
-  padding: 34px 32px;
+  padding: 30px 24px;
   width: 100%;
   max-width: 380px;
+  box-sizing: border-box;
 }
 .login-box h2 {
   font-family: var(--font-display);
@@ -862,10 +992,8 @@ input[type="number"]:focus {
   font-size: 0.82rem;
   font-weight: 500;
   margin-top: 12px;
-  margin-bottom: 0;
 }
 
-/* Time-block modal */
 .timeblock-box { width: 100%; max-width: 360px; }
 .timeblock-chore-name {
   font-family: var(--font-body);
@@ -874,39 +1002,70 @@ input[type="number"]:focus {
   margin-bottom: 22px !important;
   word-break: break-word;
 }
-.timeblock-time-input {
-  font-family: var(--font-body) !important;
-  font-size: 1rem !important;
-  padding: 12px 14px !important;
-}
 
-/* ---------- Mobile (bump touch targets) ---------- */
+/* ============================================================
+   RESPONSIVE & MOBILE LAYOUT FIXES (Requirement 5)
+   ============================================================ */
 @media (max-width: 600px) {
-  .app-container { padding: 28px 16px 80px; }
-  .panel, .list-module, .form-module, .notes-module { padding: 22px; }
-  .chore-list li { padding: 15px 14px; gap: 12px; }
-  .chore-queue-check { width: 30px; height: 30px; border-radius: 8px; }
-  .plan-complete-check { width: 30px; height: 30px; }
-  .plan-clock-icon { font-size: 0.95rem; padding: 6px; }
-  .chore-star-btn { font-size: 1.05rem; padding: 4px 6px; }
-  .btn { padding: 14px 16px; }
-  .timeblock-box { max-width: 100%; }
-  .swipe-btn { width: 64px; font-size: 1.1rem; }
-  .main-header { flex-direction: column; align-items: flex-start; gap: 4px; }
+  .app-container { padding: 20px 14px 80px; }
+  .panel, .list-module, .form-module, .notes-module { padding: 18px 16px; }
+
+  /* Single column for grid controls on mobile so nothing overflows */
+  .agent-grid {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .due-inputs {
+    flex-direction: column;
+    gap: 8px;
+  }
+  .due-inputs input {
+    width: 100%;
+    flex-basis: 100%;
+  }
+
+  .chore-list li {
+    padding: 12px 10px;
+    gap: 8px;
+  }
+
+  .chore-actions {
+    gap: 2px;
+  }
+
+  .chore-action-btn {
+    padding: 6px;
+    font-size: 0.9rem;
+  }
+
+  .chore-queue-check { width: 28px; height: 28px; border-radius: 6px; }
+  .plan-complete-check { width: 28px; height: 28px; }
+
+  .btn { padding: 12px 14px; }
+  .swipe-btn { width: 56px; font-size: 1rem; }
+
+  .main-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+  }
   .date-module { text-align: left; }
-  .agent-ask { flex-direction: column; }
+
+  .agent-ask {
+    flex-direction: column;
+    gap: 8px;
+  }
+  .agent-ask input { width: 100%; }
   .agent-ask .btn-ghost { width: 100%; }
-  .agent-log { max-height: 320px; }
+
+  .agent-log { max-height: 300px; }
 }
 
-/* Stack the planner controls into one column before they get cramped, so the
-   "Wind down by" / "Day fullness" pair on the right can never overlap or clip. */
-@media (max-width: 460px) {
-  .agent-grid { grid-template-columns: 1fr; }
-  .due-inputs input { flex-basis: 100%; }
+@media (max-width: 400px) {
+  .login-box { padding: 22px 16px; }
 }
 
-/* ---------- A11y / polish ---------- */
 :focus-visible {
   outline: 2px solid var(--clay);
   outline-offset: 2px;
