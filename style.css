@@ -730,10 +730,36 @@ li.completed .custom-check {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
   margin-bottom: 18px;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
 }
-.agent-grid .form-control { margin-bottom: 0; min-width: 0; }
+.agent-grid .form-control {
+  margin-bottom: 0;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden; /* clip stubborn native time-input min-width */
+}
 .agent-grid .form-control input,
-.agent-grid .form-control select { max-width: 100%; }
+.agent-grid .form-control select {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+/* Chrome/Safari <input type="time"> carries a large intrinsic min-width that
+   ignores normal min-width:0 — force it to fit the grid cell. */
+.agent-grid input[type="time"] {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  /* slightly tighter padding so the clock glyph + value fit on narrow phones */
+  padding-left: 10px;
+  padding-right: 8px;
+}
 
 .label-optional {
   font-weight: 500;
@@ -1059,17 +1085,24 @@ input[type="number"]:focus {
   .agent-ask .btn-ghost { width: 100%; }
   .agent-log { max-height: 320px; }
   .agent-grid {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 10px;
     width: 100%;
     max-width: 100%;
   }
-  .agent-grid .form-control,
-  .agent-grid input,
-  .agent-grid select {
+  .agent-grid .form-control {
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+  }
+  .agent-grid .form-control input,
+  .agent-grid .form-control select,
+  .agent-grid input[type="time"] {
+    display: block;
     width: 100%;
     max-width: 100%;
     min-width: 0;
+    box-sizing: border-box;
   }
   .controls-row {
     width: 100%;
