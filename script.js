@@ -83,25 +83,57 @@ window.toggleAddTaskForm = () => {
     }
 };
 
+// Open/close state is driven by an INLINE style, not by the .collapsed class
+// alone. The class is kept for styling and the reveal animation, but the
+// show/hide itself must not depend on a stylesheet: this feature has already
+// broken once because the CSS drifted to different class names, and a stale
+// cached style.css would break it the same way. An inline style outranks any
+// stylesheet rule and works even if style.css never loads.
 window.expandAddTaskForm = () => {
     const formEl = document.getElementById('form');
     const chevron = document.getElementById('add-task-chevron');
     const subtitle = document.getElementById('form-subtitle');
+    const header = document.getElementById('add-task-toggle');
     if (!formEl) return;
     formEl.classList.remove('collapsed');
+    formEl.style.display = '';          // fall back to the sheet's normal display
     if (chevron) chevron.style.transform = 'rotate(180deg)';
     if (subtitle) subtitle.innerText = 'Click to collapse';
+    if (header) header.setAttribute('aria-expanded', 'true');
 };
 
 window.collapseAddTaskForm = () => {
     const formEl = document.getElementById('form');
     const chevron = document.getElementById('add-task-chevron');
     const subtitle = document.getElementById('form-subtitle');
+    const header = document.getElementById('add-task-toggle');
     if (!formEl) return;
     formEl.classList.add('collapsed');
+    formEl.style.display = 'none';      // enforced regardless of CSS
     if (chevron) chevron.style.transform = 'rotate(0deg)';
     if (subtitle) subtitle.innerText = 'Click to expand';
+    if (header) header.setAttribute('aria-expanded', 'false');
 };
+
+// Keyboard support for the header (it is a div, not a native button) and a
+// programmatic click binding so the feature does not rely solely on the inline
+// onclick attribute.
+document.addEventListener('DOMContentLoaded', () => {
+    const formEl = document.getElementById('form');
+    // Apply the inline state that matches the markup's starting class, so the
+    // form is genuinely hidden on first paint even without the stylesheet.
+    if (formEl && formEl.classList.contains('collapsed')) collapseAddTaskForm();
+
+    const header = document.getElementById('add-task-toggle');
+    if (!header || header.dataset.wired) return;
+    header.dataset.wired = '1';
+    header.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') {
+            e.preventDefault();
+            window.toggleAddTaskForm();
+        }
+    });
+});
 
 window.cancelEdit = () => {
     editState = { isEditing: false, id: null };

@@ -4,7 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Chore Planner</title>
-    <link rel="stylesheet" href="./style.css">
+    <!-- ?v= is a cache buster: bump it whenever style.css or the scripts change
+         so returning visitors never run a stale stylesheet against new markup. -->
+    <link rel="stylesheet" href="./style.css?v=7">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -94,7 +96,8 @@
 
             <!-- COMPACT / COLLAPSIBLE ADD TASK SECTION -->
             <section class="form-module collapsible-module" id="add-task-module">
-                <div class="collapsible-header" id="add-task-toggle" onclick="toggleAddTaskForm()">
+                <div class="collapsible-header" id="add-task-toggle" onclick="toggleAddTaskForm()"
+                     role="button" tabindex="0" aria-expanded="false" aria-controls="form">
                     <div class="collapsible-title">
                         <h3 id="form-title"><i class="fas fa-plus-circle"></i> Add task</h3>
                         <span class="collapsible-sub" id="form-subtitle">Click to expand</span>
@@ -238,8 +241,8 @@
         </main>
     </div>
 
-    <script src="./scheduler.js"></script>
-    <script src="./script.js"></script>
-    <script src="./agent.js"></script>
+    <script src="./scheduler.js?v=7"></script>
+    <script src="./script.js?v=7"></script>
+    <script src="./agent.js?v=7"></script>
 </body>
 </html>
