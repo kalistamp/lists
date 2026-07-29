@@ -491,49 +491,65 @@ li.completed .custom-check {
 .swipe-edit   { background: var(--clay); }
 .swipe-delete { background: var(--danger); }
 
-/* Desktop / always-available row actions on main chore lists */
-.chore-row-actions {
-  display: none;
+/* ---------- Row actions (edit / delete) ----------
+   Class names must match the markup in script.js (.chore-actions /
+   .chore-action-btn). Styled as quiet icon buttons in the app's own
+   language: no chrome at rest, clay wash on hover, same radius scale. */
+.chore-actions {
+  display: flex;
   align-items: center;
   gap: 2px;
   flex-shrink: 0;
-  margin-left: 4px;
+  margin-left: 2px;
 }
-.row-action-btn {
+.chore-action-btn,
+.plan-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  flex-shrink: 0;
   background: transparent;
-  border: none;
+  border: 1px solid transparent;
+  border-radius: 8px;
   color: var(--ink-faint);
-  cursor: pointer;
-  padding: 6px 8px;
+  font-family: var(--font-body);
   font-size: 0.78rem;
-  border-radius: 6px;
-  transition: color var(--dur) var(--ease), background var(--dur) var(--ease);
+  line-height: 1;
+  cursor: pointer;
+  transition: color var(--dur) var(--ease),
+              background var(--dur) var(--ease),
+              border-color var(--dur) var(--ease);
 }
-.row-action-btn:hover { background: var(--clay-wash); }
-.row-edit:hover { color: var(--clay-deep); }
-.row-delete:hover { color: var(--danger); }
+.chore-action-btn:hover,
+.plan-icon-btn:hover {
+  background: var(--clay-wash);
+  border-color: var(--clay-soft);
+  color: var(--clay-deep);
+}
+.chore-action-btn:active,
+.plan-icon-btn:active { transform: translateY(1px); }
 
-/* Show row actions on desktop (hover-capable devices with room) */
+.chore-delete-btn:hover {
+  background: rgba(177, 71, 47, 0.08);
+  border-color: rgba(177, 71, 47, 0.28);
+  color: var(--danger);
+}
+
+/* Desktop: rest quietly, come forward on row hover/focus */
 @media (hover: hover) and (min-width: 601px) {
-  .chore-row-actions {
-    display: flex;
-    opacity: 0.35;
-    transition: opacity var(--dur) var(--ease);
-  }
-  .chore-list li:hover .chore-row-actions,
-  .chore-list li:focus-within .chore-row-actions {
-    opacity: 1;
-  }
+  .chore-actions { opacity: 0.4; transition: opacity var(--dur) var(--ease); }
+  .chore-list li:hover .chore-actions,
+  .chore-list li:focus-within .chore-actions { opacity: 1; }
 }
 
-/* On touch / narrow screens, keep row actions visible as compact icons
-   so edit/delete work without relying only on swipe */
+/* Touch: always visible, full-size tap targets */
 @media (max-width: 600px), (hover: none) {
-  .chore-row-actions {
-    display: flex;
-    opacity: 0.85;
-  }
-  .row-action-btn { padding: 8px 10px; font-size: 0.85rem; }
+  .chore-actions { opacity: 1; gap: 0; }
+  .chore-action-btn,
+  .plan-icon-btn { width: 32px; height: 32px; font-size: 0.82rem; }
 }
 
 /* ============================================================
@@ -638,57 +654,77 @@ li.completed .custom-check {
 .plan-clock-icon.assigned { color: var(--clay); }
 
 .plan-trash {
-  color: var(--danger);
-  font-size: 0.82rem;
-  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
   flex-shrink: 0;
-  opacity: 0.7;
-  transition: opacity var(--dur) var(--ease);
-  padding: 4px;
+  border-radius: 8px;
+  color: var(--ink-faint);
+  font-size: 0.78rem;
+  cursor: pointer;
+  transition: color var(--dur) var(--ease), background var(--dur) var(--ease);
 }
-.plan-trash:hover { opacity: 1; }
+.plan-trash:hover { color: var(--danger); background: rgba(177, 71, 47, 0.08); }
 
-/* Plan row action cluster (reorder + clock + edit + delete) */
+/* Plan row action cluster (reorder + clock + edit + delete).
+   Every control shares the 30px icon-button footprint so the cluster reads as
+   one tidy group instead of mismatched glyphs. */
 .plan-actions {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 2px;
   flex-shrink: 0;
   margin-left: auto;
 }
+
+/* Stacked up/down arrows, sized to match one icon button in total height */
 .plan-reorder {
   display: inline-flex;
   flex-direction: column;
-  gap: 0;
+  flex-shrink: 0;
+  margin-right: 2px;
 }
 .plan-arrow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 15px;
+  padding: 0;
   background: transparent;
   border: none;
   color: var(--ink-faint);
   cursor: pointer;
-  padding: 1px 4px;
-  font-size: 0.65rem;
+  font-size: 0.6rem;
   line-height: 1;
-  border-radius: 4px;
+  border-radius: 5px;
   transition: color var(--dur) var(--ease), background var(--dur) var(--ease);
 }
 .plan-arrow:hover:not(:disabled) { color: var(--clay-deep); background: var(--clay-wash); }
-.plan-arrow:disabled { opacity: 0.3; cursor: default; }
-.plan-icon-btn {
-  background: transparent;
-  border: none;
-  color: var(--ink-faint);
-  cursor: pointer;
-  padding: 4px 6px;
-  font-size: 0.78rem;
-  border-radius: 6px;
-  transition: color var(--dur) var(--ease), background var(--dur) var(--ease);
-}
-.plan-icon-btn:hover { color: var(--clay-deep); background: var(--clay-wash); }
-.plan-clock-wrap { display: inline-flex; align-items: center; }
+.plan-arrow:disabled { opacity: 0.25; cursor: default; }
 
-/* Drag-and-drop states */
-.plan-list li { transition: opacity 0.15s, box-shadow 0.15s; touch-action: none; }
+/* Clock + trash are bare <i> in the markup — give them the same button box */
+.plan-clock-wrap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background var(--dur) var(--ease);
+}
+.plan-clock-wrap:hover { background: var(--clay-wash); }
+.plan-clock-icon { padding: 0; font-size: 0.78rem; }
+
+/* Drag-and-drop states.
+   touch-action: pan-y (not none) so the page still scrolls when a finger
+   starts on a plan row — the up/down arrows cover reordering on touch. */
+.plan-list li { transition: opacity 0.15s, box-shadow 0.15s; touch-action: pan-y; }
 .plan-list li.drag-source {
   opacity: 0.4;
   box-shadow: 0 0 0 2px var(--clay);
@@ -739,7 +775,6 @@ li.completed .custom-check {
   margin-bottom: 0;
   min-width: 0;
   max-width: 100%;
-  overflow: hidden; /* clip stubborn native time-input min-width */
 }
 .agent-grid .form-control input,
 .agent-grid .form-control select {
@@ -1060,15 +1095,16 @@ input[type="number"]:focus {
     overflow: visible;
   }
   .chore-list li {
-    padding: 15px 14px;
-    gap: 10px;
+    padding: 13px 10px;
+    gap: 8px;
     max-width: 100%;
-    /* Allow row actions to sit outside the swipe clip without truncating layout */
-    overflow: visible;
+    /* Must stay clipped: .swipe-actions is parked at translateX(100%), so
+       overflow:visible would render it outside the row and past the edge. */
+    overflow: hidden;
   }
-  .chore-list li.swiped { overflow: hidden; }
   .chore-text, .plan-text {
     min-width: 0;
+    flex: 1 1 auto;
     overflow-wrap: anywhere;
     word-break: break-word;
   }
@@ -1093,7 +1129,6 @@ input[type="number"]:focus {
   .agent-grid .form-control {
     min-width: 0;
     max-width: 100%;
-    overflow: hidden;
   }
   .agent-grid .form-control input,
   .agent-grid .form-control select,
@@ -1111,21 +1146,38 @@ input[type="number"]:focus {
     flex: 1 1 auto;
     min-width: 0;
   }
+  /* Keep the action cluster on one line and never let it be squeezed —
+     the text column absorbs the remaining width instead. */
   .plan-actions {
-    flex-wrap: wrap;
-    max-width: 42%;
+    flex-wrap: nowrap;
+    flex-shrink: 0;
     justify-content: flex-end;
   }
-  .plan-list li {
-    flex-wrap: wrap;
-    overflow: visible;
+  .plan-num { min-width: 20px; }
+
+  /* Below ~430px the row can't hold text + a 4-control cluster without
+     shredding the title into one word per line. Let the row wrap and drop the
+     controls onto their own right-aligned line so the text keeps full width. */
+  @media (max-width: 430px) {
+    .plan-list li { flex-wrap: wrap; row-gap: 4px; }
+    .plan-actions { flex-basis: 100%; margin-left: 0; }
+
+    /* Same treatment for the category lists (not the plan, handled above) */
+    .chore-list:not(.plan-list) li { flex-wrap: wrap; row-gap: 4px; }
+    .chore-actions {
+      flex-basis: 100%;
+      justify-content: flex-end;
+      margin-left: 0;
+    }
   }
 }
 
 /* Stack the planner controls into one column before they get cramped, so the
    "Wind down by" / "Day fullness" pair on the right can never overlap or clip. */
 @media (max-width: 460px) {
-  .agent-grid { grid-template-columns: 1fr; }
+  /* minmax(0, 1fr), not 1fr: a bare 1fr floors at the time input's intrinsic
+     width, which is what pushed "Starting at" / "Wind down by" past the card. */
+  .agent-grid { grid-template-columns: minmax(0, 1fr); }
   .due-inputs input { flex-basis: 100%; }
   .app-container { padding-left: 12px; padding-right: 12px; }
   .panel, .list-module, .form-module, .notes-module, .assistant-module, .daily-plan-module {
