@@ -10,28 +10,16 @@
   'use strict';
 
   const API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
-  // Default to the Google-maintained "-latest" alias: it always resolves to a
-  // current model, so it can't rot. Concrete dated ids (gemini-2.5-flash,
-  // gemini-2.0-flash, the old 1.5 / 1.0 ids) get retired for new keys and 404
-  // with "no longer available to new users", so we don't lead with them.
   const DEFAULT_MODEL = 'gemini-flash-latest';
-  // Tried after the user's configured model — all maintained aliases so they
-  // can't rot. gemini-flash-latest is repeated here on purpose: it guarantees a
-  // live model is in the chain even when a stale concrete id is saved in
-  // Settings. If every alias still misses, callGemini falls back to live
-  // ListModels discovery (see discoverModels) so the chain can't dead-end.
   const FALLBACK_MODELS = ['gemini-flash-latest', 'gemini-pro-latest', 'gemini-flash-lite-latest'];
-  const MAX_STEPS = 8;             // free tier is rate-limited; cap the loop
+  const MAX_STEPS = 8;
   const CATEGORIES = ['daily', 'errands', 'oneoff'];
   const URGENCIES = ['low', 'medium', 'high', 'urgent'];
 
   let GEMINI_KEY = localStorage.getItem('geminiKey') || '';
   let GEMINI_MODEL = localStorage.getItem('geminiModel') || DEFAULT_MODEL;
 
-  // Once a model answers this session we pin it, so the loop doesn't re-probe a
-  // dead model on every step. Reset whenever the key or configured model changes.
   let resolvedModel = null;
-
   let running = false;
 
   // ─────────────────────────────────────────────
@@ -40,7 +28,7 @@
   const functionDeclarations = [
     {
       name: 'list_chores',
-      description: 'Re-read the current chore list with ids, categories, durations, starred flags, completion state and any assigned time block. Call this after making changes if you need to confirm the new state.',
+      description: 'Re-read the current chore list with ids, categories, durations, starred flags, completion state and any assigned time block. Note: "daily" chores are filtered out as they are excluded from AI day planning.',
       parameters: {
         type: 'OBJECT',
         properties: {
@@ -96,7 +84,7 @@
     },
     {
       name: 'set_chore_starred',
-      description: 'Star or unstar a chore. Starred chores are treated as priorities and are auto-added to the daily plan at midnight reset.',
+      description: 'Star or unstar a chore. Starred non-daily chores are treated as priorities and are auto-added to the daily plan.',
       parameters: {
         type: 'OBJECT',
         properties: {
@@ -129,7 +117,7 @@
     },
     {
       name: 'build_day_schedule',
-      description: "Replace Today's plan with a time-blocked schedule. You supply the chores in the order they should happen and how long each takes; this tool does all the clock arithmetic, inserts cushions between tasks, stops at the end of the day and enforces a load cap so the day is never over-filled. It returns exactly what fit and what did not — read the result and tell the user, do not assume everything was scheduled.",
+      description: "Replace Today's plan with a time-blocked schedule. You supply non-daily chores in the order they should happen and how long each takes; this tool does all the clock arithmetic, inserts cushions between tasks, stops at the end of the day and enforces a load cap. Note: any 'daily' chores are automatically filtered out.",
       parameters: {
         type: 'OBJECT',
         properties: {
@@ -189,7 +177,6 @@
 
   // ─────────────────────────────────────────────
   // TOOL IMPLEMENTATIONS
-  // Each returns a plain object handed straight back to the model.
   // ─────────────────────────────────────────────
   const App = () => window.ChoresApp;
   const Sched = () => window.ChoreScheduler;
@@ -224,8 +211,10 @@
       const plan = App().getPlan();
       const blocks = App().getTimeBlocks();
       const includeDone = !!(args && args.include_completed);
+
+      // REQUIREMENT 4: Filter out any task whose category is "daily"
       const chores = App().getChores()
-        .filter(c => includeDone || !c.completed)
+        .filter(c => (includeDone || !c.completed) && c.type !== 'daily')
         .map(c => compactChore(c, plan, blocks));
       return { chores, count: chores.length };
     },
@@ -248,7 +237,7 @@
         durationMin: Number(args.duration_min) > 0 ? Math.round(Number(args.duration_min)) : undefined
       };
       App().setChores([...App().getChores(), chore]);
-      if (chore.starred) {
+      if (chore.starred && chore.type !== 'daily') {
         const plan = App().getPlan();
         if (!plan.includes(id)) App().setPlan([...plan, id]);
       }
@@ -265,7 +254,6 @@
         if (typeof args.text === 'string' && args.text.trim()) { u.text = args.text.trim(); changed.text = u.text; }
         if (CATEGORIES.includes(args.category)) { u.type = args.category; changed.category = u.type; }
         if (URGENCIES.includes(args.urgency)) { u.urgency = args.urgency; changed.urgency = u.urgency; }
-        // An explicit empty string clears the field; a non-empty string sets it.
         if (typeof args.due_date === 'string') { u.dueDate = args.due_date.trim() || undefined; changed.due_date = u.dueDate || null; }
         if (typeof args.due_time === 'string') { u.dueTime = args.due_time.trim() || undefined; changed.due_time = u.dueTime || null; }
         if (Number(args.duration_min) > 0) { u.durationMin = Math.round(Number(args.duration_min)); changed.duration_min = u.durationMin; }
@@ -290,7 +278,7 @@
       const starred = !!args.starred;
       App().setChores(App().getChores().map(x => x.id === id ? { ...x, starred } : x));
       let plan = App().getPlan();
-      if (starred && !plan.includes(id)) plan = [...plan, id];
+      if (starred && c.type !== 'daily' && !plan.includes(id)) plan = [...plan, id];
       if (!starred && plan.includes(id)) plan = plan.filter(p => p !== id);
       App().setPlan(plan);
       return { chore_id: id, text: c.text, starred };
@@ -314,6 +302,8 @@
       const id = Number(args.chore_id);
       const c = findChore(id);
       if (!c) return { error: `no chore with id ${id}` };
+      if (c.type === 'daily') return { error: `Chores in the 'daily' category cannot be added to Today's plan.` };
+
       let plan = App().getPlan();
       const want = !!args.in_plan;
       if (want && !plan.includes(id)) plan = [...plan, id];
@@ -324,20 +314,26 @@
 
     build_day_schedule(args) {
       const chores = App().getChores();
-      const items = (Array.isArray(args.items) ? args.items : []).map(it => {
+      const rawItems = Array.isArray(args.items) ? args.items : [];
+
+      // REQUIREMENT 4: Filter out any chore whose category is 'daily'
+      const items = rawItems.map(it => {
         const id = Number(it && it.chore_id);
         const c = chores.find(x => x.id === id);
+        const isDaily = c && c.type === 'daily';
         return {
           id,
           text: c ? c.text : `(unknown chore ${id})`,
           durationMin: Number(it && it.duration_min) > 0
             ? Number(it.duration_min)
             : (c ? App().effectiveDuration(c) : NaN),
-          missing: !c
+          missing: !c || isDaily,
+          isDaily
         };
       });
 
-      const unknown = items.filter(i => i.missing).map(i => i.id);
+      const unknown = items.filter(i => i.missing && !i.isDaily).map(i => i.id);
+      const dailySkipped = items.filter(i => i.isDaily).map(i => i.text);
       const known = items.filter(i => !i.missing);
 
       const result = Sched().planBlocks({
@@ -350,7 +346,6 @@
 
       if (!result.ok) return { error: result.error };
 
-      // Commit the layout: plan order follows the schedule, blocks come from it
       const blocks = {};
       result.scheduled.forEach(b => { blocks[b.id] = { start: b.start, end: b.end }; });
       App().setTimeBlocks(blocks);
@@ -363,6 +358,7 @@
         not_scheduled: result.skipped.map(s => ({
           chore_id: s.id, text: s.text, reason: s.reason, detail: s.detail || null
         })),
+        daily_chores_excluded: dailySkipped.length ? dailySkipped : undefined,
         day: {
           start: result.startTime,
           end: result.endTime,
@@ -381,6 +377,8 @@
       const id = Number(args.chore_id);
       const c = findChore(id);
       if (!c) return { error: `no chore with id ${id}` };
+      if (c.type === 'daily') return { error: `Cannot set time block on daily category chore.` };
+
       const blocks = App().getTimeBlocks();
 
       if (!args.start && !args.end) {
@@ -427,8 +425,11 @@
     const chores = app.getChores();
     const now = new Date();
 
-    const openChores = chores.filter(c => !c.completed).map(c => compactChore(c, plan, blocks));
-    const doneCount = chores.length - openChores.length;
+    // REQUIREMENT 4: Filter out any chore in the "daily" category from openChores sent to the AI planner
+    const openChores = chores
+      .filter(c => !c.completed && c.type !== 'daily')
+      .map(c => compactChore(c, plan, blocks));
+    const doneCount = chores.filter(c => c.type !== 'daily' && c.completed).length;
     const notes = (app.getNotes() || '').trim();
 
     return [
@@ -436,20 +437,23 @@
       '',
       `Today is ${now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}. The current time is ${now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}.`,
       '',
+      'CRITICAL CATEGORY RULE:',
+      'Tasks belonging to the "daily" category MUST NEVER be scheduled or included in Today\'s plan by the LLM planner. Daily tasks are habits handled separately by the user and are completely excluded from AI day planning.',
+      '',
       'URGENCY & PRIORITY SCORING',
-      'Every chore carries an urgency level. Treat it as a strict priority ladder and score each chore before ordering the day:',
+      'Every non-daily chore carries an urgency level. Treat it as a strict priority ladder and score each chore before ordering the day:',
       '  • urgent (score 4): must happen today. Give it the earliest suitable slot and never leave it out.',
       '  • high   (score 3): important today. Schedule ahead of medium and low; only drop it if the day is genuinely full.',
       '  • medium (score 2): normal. Fill the middle of the day with these.',
       '  • low    (score 1): nice-to-have. Schedule late, and these are the first to drop when trimming to fit.',
       'Due dates override the stored level upward, never downward. Using today’s date and time given above: a chore due today or already past due counts as at least high; a chore due within the next hour, or already overdue, counts as urgent. A chore is never demoted below its stored urgency because of its due date.',
-      'Break ties in this order: higher urgency score first, then nearer due date/time, then starred, then daily habits, then time-sensitive errands, then one-offs.',
+      'Break ties in this order: higher urgency score first, then nearer due date/time, then starred, then time-sensitive errands, then one-offs.',
       'When the load cap forces you to leave chores out, drop strictly from the bottom of the ladder up. Never leave an urgent or overdue task unscheduled while a lower-scored one is placed.',
       '',
       'HOW TO BUILD A DAY',
       'When asked to plan the day, you will be told a wake-up or start time. Then:',
-      '1. Score every incomplete chore with the urgency ladder above, adjusting for due dates. Sort by that score, breaking ties as described. Urgent and overdue tasks go into the earliest slots.',
-      '2. Choose a BALANCED SUBSET that fits comfortably in the waking hours — not everything on the list. A day that feels achievable beats a day that is technically full. Leaving low-urgency chores for tomorrow is the correct behaviour, not a failure — but an urgent or overdue task is not something you may defer.',
+      '1. Score every incomplete non-daily chore with the urgency ladder above, adjusting for due dates. Sort by that score, breaking ties as described. Urgent and overdue tasks go into the earliest slots.',
+      '2. Choose a BALANCED SUBSET that fits comfortably in the waking hours — not everything on the list. A day that feels achievable beats a day that is technically full.',
       '3. Order them sensibly within the priority scoring: place higher-urgency and time-critical work in the earlier, protected slots; group errands into one outing so travel is shared; keep quiet or low-effort, low-urgency tasks for later in the day.',
       '4. Estimate a realistic duration for anything without one, and round to something human (15, 30, 45, 60 minutes). Err generous.',
       '5. Call build_day_schedule with the ordered list. It does the clock maths, inserts the cushions and enforces the limits. Never compute times yourself.',
@@ -461,7 +465,7 @@
       "Be brief and concrete. Lead with the schedule itself. Don't pad with encouragement or restate the user's request back to them. If a tool returns an error or a refusal, say so honestly rather than pretending it worked.",
       '',
       'CURRENT STATE',
-      `Incomplete chores (${openChores.length}${doneCount ? `, plus ${doneCount} already done` : ''}):`,
+      `Incomplete non-daily chores (${openChores.length}${doneCount ? `, plus ${doneCount} already done` : ''}):`,
       openChores.length ? JSON.stringify(openChores, null, 1) : '(none)',
       '',
       `Chores currently in Today's plan, in order: ${plan.length ? JSON.stringify(plan) : '(empty)'}`,
@@ -473,23 +477,12 @@
 
   // ─────────────────────────────────────────────
   // GEMINI CALL
-  // Model resolution is three-tiered: (1) the configured model, then the static
-  // FALLBACK_MODELS chain; (2) if all of those hit availability errors, live
-  // ListModels discovery picks a model this key actually supports; (3) the first
-  // model that answers is pinned for the session. Rate-limit and bad-key errors
-  // are NOT retried on other models — they'd fail identically — so they surface
-  // straight away.
   // ─────────────────────────────────────────────
-
-  // Configured model first, then the fallbacks, de-duplicated.
   function modelCandidates() {
     const ordered = [GEMINI_MODEL, ...FALLBACK_MODELS];
     return ordered.filter((m, i) => m && ordered.indexOf(m) === i);
   }
 
-  // True when the failure is specific to this model id, so another model is
-  // worth trying: 404 (model not found for this key/API version), or a 400/403
-  // whose message points at the model rather than the key or quota.
   function isModelAvailabilityError(status, detail) {
     if (status === 404) return true;
     const d = (detail || '').toLowerCase();
@@ -518,7 +511,7 @@
     try {
       const err = await res.json();
       return (err && err.error && err.error.message) || '';
-    } catch (e) { return ''; /* body wasn't json */ }
+    } catch (e) { return ''; }
   }
 
   function candidateFromJson(json) {
@@ -530,9 +523,6 @@
     return candidate;
   }
 
-  // One generateContent attempt. Returns { candidate } on success or
-  // { unavailable, detail } for a model-specific miss. Errors that every model
-  // would share (rate limit, bad key) and genuine errors are thrown.
   async function attemptModel(model, contents, systemPrompt) {
     const res = await requestModel(model, contents, systemPrompt);
     if (res.ok) return { candidate: candidateFromJson(await res.json()) };
@@ -548,11 +538,6 @@
     throw new Error(`Gemini error ${res.status}${detail ? `: ${detail}` : ''}`);
   }
 
-  // Rank whatever ListModels returned so discovery tries the most sensible first:
-  // maintained "-latest" aliases, then full (non-lite) over lite, flash over pro
-  // (fast/cheap for a simple scheduling task), stable over preview/specialised,
-  // then newest version. The self-healing loop still skips any that 404 on use
-  // (some ids are listed but retired), so this only needs to be a good ordering.
   function rankModels(names) {
     const version = (n) => { const m = n.match(/gemini-(\d+(?:\.\d+)?)/); return m ? parseFloat(m[1]) : 0; };
     const key = (n) => [
@@ -568,9 +553,6 @@
       .map(x => x.n);
   }
 
-  // Ask the API which models THIS key can use for generateContent. This is the
-  // self-healing backstop: even if every hardcoded id is retired, we still find
-  // a live model instead of dead-ending on a stale list.
   async function discoverModels() {
     const res = await fetch(`${API_BASE}?key=${encodeURIComponent(GEMINI_KEY)}&pageSize=1000`);
     if (!res.ok) return { ok: false, status: res.status, detail: await readErrorDetail(res) };
@@ -584,8 +566,6 @@
   async function callGemini(contents, systemPrompt) {
     const tried = [];
 
-    // Walk a list of model ids, skipping any already tried, and return the first
-    // candidate. Pins the winner and notes it once when it isn't the primary.
     const runChain = async (models) => {
       for (const model of models) {
         if (tried.includes(model)) continue;
@@ -602,19 +582,15 @@
       return null;
     };
 
-    // 1) A model already proven this session — reuse it, but if it has since
-    //    stopped working, clear the pin and fall through to a fresh search.
     if (resolvedModel) {
       const c = await runChain([resolvedModel]);
       if (c) return c;
       resolvedModel = null;
     }
 
-    // 2) Configured model, then the static fast-path chain.
     let c = await runChain(modelCandidates());
     if (c) return c;
 
-    // 3) Self-healing: discover what this key actually supports.
     const disc = await discoverModels();
     if (!disc.ok) {
       if (disc.status === 400 && /API key/i.test(disc.detail)) {
@@ -659,7 +635,6 @@
         const calls = parts.filter(p => p.functionCall).map(p => p.functionCall);
         const text = parts.filter(p => p.text).map(p => p.text).join('').trim();
 
-        // Model is done acting and has an answer
         if (!calls.length) {
           if (text) logAnswer(text);
           else logError('Gemini finished without saying anything. Try rephrasing.');
@@ -668,8 +643,6 @@
 
         contents.push(candidate.content);
 
-        // Gemini may return several calls in one turn — run them all,
-        // then hand every result back in a single follow-up message.
         const responseParts = [];
         for (const call of calls) {
           const impl = tools[call.name];
@@ -695,19 +668,13 @@
     } catch (e) {
       logError(e.message || String(e));
     } finally {
-      // Re-render and sync once, whatever happened — mutations already wrote
-      // to localStorage, so nothing is lost if the loop errored mid-way.
       if (mutated) App().commit();
       running = false;
       setBusy(false);
     }
   }
 
-  // ─────────────────────────────────────────────
   // TRANSCRIPT UI
-  // Built with textContent throughout — model output is never
-  // interpolated into innerHTML.
-  // ─────────────────────────────────────────────
   function logEl() { return document.getElementById('agent-log'); }
 
   function appendEntry(className, build) {
@@ -753,7 +720,6 @@
     });
   }
 
-  // Muted informational line — reuses the small tool-receipt styling.
   function logNote(text) {
     appendEntry('agent-tool', row => {
       const icon = document.createElement('i');
@@ -765,7 +731,6 @@
     });
   }
 
-  // One line per tool call, with a short human summary of the outcome
   function logTool(name, args, result) {
     appendEntry('agent-tool', row => {
       const icon = document.createElement('i');
@@ -831,9 +796,6 @@
     }
   }
 
-  // ─────────────────────────────────────────────
-  // WIRING
-  // ─────────────────────────────────────────────
   function currentTimeHHMM() {
     const d = new Date();
     return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
@@ -848,7 +810,7 @@
     const parts = [`Plan my day. I'm starting at ${wake}.`];
     if (end) parts.push(`I want to be winding down by ${end}.`);
     parts.push(`Use a cushion of about ${cushion} minutes between tasks and a load cap of ${load}%.`);
-    parts.push('Pick a balanced subset of my incomplete chores, build the schedule with build_day_schedule, then show me the chronological result and tell me what you left for another day.');
+    parts.push('Pick a balanced subset of my incomplete non-daily chores, build the schedule with build_day_schedule, then show me the chronological result and tell me what you left for another day.');
 
     runAgent(parts.join(' '));
   }
@@ -888,11 +850,10 @@
     }
   }
 
-  // Settings modal calls this after saving
   function setCredentials(key, model) {
     GEMINI_KEY = key || '';
     GEMINI_MODEL = model || DEFAULT_MODEL;
-    resolvedModel = null; // re-probe the chain with the new key/model
+    resolvedModel = null;
     localStorage.setItem('geminiKey', GEMINI_KEY);
     localStorage.setItem('geminiModel', GEMINI_MODEL);
   }
