@@ -784,16 +784,28 @@ li.completed .custom-check {
   min-width: 0;
   box-sizing: border-box;
 }
-/* Chrome/Safari <input type="time"> carries a large intrinsic min-width that
-   ignores normal min-width:0 — force it to fit the grid cell. */
+/* <input type="time"> carries a native intrinsic min-width that ignores a plain
+   min-width:0 — iOS Safari in particular sizes it from its own UA widget rather
+   than the box, which is what pushed it past the card edge. Stripping the native
+   appearance makes it size like an ordinary box we control. */
 .agent-grid input[type="time"] {
+  -webkit-appearance: none;
+  appearance: none;
   width: 100%;
   max-width: 100%;
   min-width: 0;
   box-sizing: border-box;
+  text-align: left;
   /* slightly tighter padding so the clock glyph + value fit on narrow phones */
   padding-left: 10px;
   padding-right: 8px;
+}
+/* iOS renders the value in a nested field that can itself overflow */
+.agent-grid input[type="time"]::-webkit-date-and-time-value {
+  text-align: left;
+  margin: 0;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .label-optional {
@@ -1120,8 +1132,13 @@ input[type="number"]:focus {
   .agent-ask { flex-direction: column; }
   .agent-ask .btn-ghost { width: 100%; }
   .agent-log { max-height: 320px; }
+  /* One full-width column on anything phone-sized. Two columns only ever left
+     ~185px per cell, which is the width a native time widget fights hardest —
+     and it renders differently per engine, so this removes the whole class of
+     overflow rather than tuning against one browser. Tablets/desktop (>600px)
+     keep the 2-up layout. */
   .agent-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: minmax(0, 1fr);
     gap: 10px;
     width: 100%;
     max-width: 100%;
