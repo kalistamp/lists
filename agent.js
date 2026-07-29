@@ -10,18 +10,17 @@
   'use strict';
 
   const API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
-  const DEFAULT_MODEL = 'gemini-2.5-flash';
-  // Static fast-path chain, tried after the user's configured model. Kept to
-  // current generateContent ids: the retired 1.5 models and 1.0 "gemini-pro"
-  // 404 on keys created today. The *-latest aliases are Google-maintained and
-  // always resolve to a live model, so they make good rot-proof fallbacks.
-  // If every id here still misses, callGemini falls back to live ListModels
-  // discovery (see discoverModels) so the chain can never dead-end on staleness.
-  const FALLBACK_MODELS = ['gemini-2.0-flash', 'gemini-flash-latest', 'gemini-pro-latest'];
-  // Applied to whatever ListModels returns for this key, first substring hit
-  // wins; unmatched models keep their API order after these. Prefers a fast,
-  // current flash model for a simple scheduling task, then pro.
-  const DISCOVERY_PREFERENCE = ['flash-latest', '2.5-flash', '2.0-flash', 'flash', 'pro-latest', '2.5-pro', 'pro'];
+  // Default to the Google-maintained "-latest" alias: it always resolves to a
+  // current model, so it can't rot. Concrete dated ids (gemini-2.5-flash,
+  // gemini-2.0-flash, the old 1.5 / 1.0 ids) get retired for new keys and 404
+  // with "no longer available to new users", so we don't lead with them.
+  const DEFAULT_MODEL = 'gemini-flash-latest';
+  // Tried after the user's configured model — all maintained aliases so they
+  // can't rot. gemini-flash-latest is repeated here on purpose: it guarantees a
+  // live model is in the chain even when a stale concrete id is saved in
+  // Settings. If every alias still misses, callGemini falls back to live
+  // ListModels discovery (see discoverModels) so the chain can't dead-end.
+  const FALLBACK_MODELS = ['gemini-flash-latest', 'gemini-pro-latest', 'gemini-flash-lite-latest'];
   const MAX_STEPS = 8;             // free tier is rate-limited; cap the loop
   const CATEGORIES = ['daily', 'errands', 'oneoff'];
   const URGENCIES = ['low', 'medium', 'high', 'urgent'];
@@ -549,18 +548,23 @@
     throw new Error(`Gemini error ${res.status}${detail ? `: ${detail}` : ''}`);
   }
 
-  // Order the models ListModels reported by DISCOVERY_PREFERENCE (first substring
-  // hit wins), then prefer full over "lite" and stable over preview/experimental
-  // within the same bucket; anything unmatched keeps its API order, last.
+  // Rank whatever ListModels returned so discovery tries the most sensible first:
+  // maintained "-latest" aliases, then full (non-lite) over lite, flash over pro
+  // (fast/cheap for a simple scheduling task), stable over preview/specialised,
+  // then newest version. The self-healing loop still skips any that 404 on use
+  // (some ids are listed but retired), so this only needs to be a good ordering.
   function rankModels(names) {
-    const rank = (n) => [
-      (i => i === -1 ? DISCOVERY_PREFERENCE.length : i)(DISCOVERY_PREFERENCE.findIndex(p => n.includes(p))),
+    const version = (n) => { const m = n.match(/gemini-(\d+(?:\.\d+)?)/); return m ? parseFloat(m[1]) : 0; };
+    const key = (n) => [
+      /-latest$/.test(n) ? 0 : 1,
       /lite/.test(n) ? 1 : 0,
-      /preview|exp|thinking/.test(n) ? 1 : 0
+      /flash/.test(n) ? 0 : 1,
+      /preview|exp|thinking|tts|image|robotics|computer-use|customtools|embedding|aqa/.test(n) ? 1 : 0,
+      -version(n)
     ];
     return names
-      .map((n, idx) => ({ n, idx, r: rank(n) }))
-      .sort((a, b) => a.r[0] - b.r[0] || a.r[1] - b.r[1] || a.r[2] - b.r[2] || a.idx - b.idx)
+      .map((n, idx) => ({ n, idx, k: key(n) }))
+      .sort((a, b) => { for (let i = 0; i < a.k.length; i++) { if (a.k[i] !== b.k[i]) return a.k[i] - b.k[i]; } return a.idx - b.idx; })
       .map(x => x.n);
   }
 
