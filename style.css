@@ -430,26 +430,9 @@ li.completed .custom-check {
   border-color: var(--clay);
 }
 
-/* Queue (add-to-today) checkbox */
-.chore-queue-check {
-  width: 22px; height: 22px;
-  border: 1.5px solid var(--line-strong);
-  background: var(--surface);
-  cursor: pointer;
-  flex-shrink: 0;
-  display: flex; align-items: center; justify-content: center;
-  border-radius: 6px;
-  color: #fff;
-  font-size: 0.6rem;
-  transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease);
-}
-.chore-queue-check:hover { border-color: var(--clay); }
-.chore-queue-check.queued {
-  background: var(--clay);
-  border-color: var(--clay);
-}
-
-/* Star */
+/* Star — the single "in Today's plan" control (the old queue checkbox that
+   sat beside it has been removed; it wrote dailyPlan without writing
+   `starred`, so the two could disagree). */
 .chore-star-btn {
   background: transparent;
   border: none;
@@ -1120,7 +1103,6 @@ input[type="number"]:focus {
     overflow-wrap: anywhere;
     word-break: break-word;
   }
-  .chore-queue-check { width: 30px; height: 30px; border-radius: 8px; }
   .plan-complete-check { width: 30px; height: 30px; }
   .plan-clock-icon { font-size: 0.95rem; padding: 6px; }
   .chore-star-btn { font-size: 1.05rem; padding: 4px 6px; }

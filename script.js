@@ -589,7 +589,6 @@ function updateUI() {
         });
 
         group.forEach(c => {
-            const isQueued = dailyPlan.includes(c.id);
             const li = document.createElement('li');
             li.className = `priority-${c.type} ${c.completed ? 'completed' : ''}`;
             li.dataset.id = c.id;
@@ -601,7 +600,6 @@ function updateUI() {
                 if (
                     e.target.tagName === 'I' ||
                     e.target.tagName === 'BUTTON' ||
-                    e.target.closest('.chore-queue-check') ||
                     e.target.closest('.chore-star-btn') ||
                     e.target.closest('.swipe-actions') ||
                     e.target.closest('.chore-actions')
@@ -609,11 +607,12 @@ function updateUI() {
                 toggleChore(c.id);
             };
 
+            // The star is the single control for "is this in Today's plan".
+            // (A separate queue checkbox used to exist here; it wrote dailyPlan
+            // without writing `starred`, so the two could disagree and a
+            // checkbox-only item silently vanished at the midnight reset.)
             li.innerHTML = `
-                <div class="chore-queue-check ${isQueued ? 'queued' : ''}" onclick="togglePlanQueue(${c.id})" title="${isQueued ? 'Remove from today' : 'Add to today'}">
-                    ${isQueued ? '<i class="fas fa-check"></i>' : ''}
-                </div>
-                <button class="chore-star-btn ${c.starred ? 'starred' : ''}" onclick="toggleStar(${c.id})" title="${c.starred ? 'Unstar' : 'Star'}">
+                <button class="chore-star-btn ${c.starred ? 'starred' : ''}" onclick="toggleStar(${c.id})" title="${c.starred ? "Remove from Today's plan" : "Add to Today's plan"}">
                     <i class="fa${c.starred ? 's' : 'r'} fa-star"></i>
                 </button>
                 <div class="custom-check"></div>
@@ -644,18 +643,9 @@ function updateUI() {
     updateDailyPlan();
 }
 
-// PLAN QUEUE TOGGLE
-window.togglePlanQueue = (id) => {
-    if (dailyPlan.includes(id)) {
-        dailyPlan = dailyPlan.filter(pid => pid !== id);
-    } else {
-        dailyPlan.push(id);
-    }
-    savePlan();
-    updateUI();
-};
-
-// STAR TOGGLE
+// STAR TOGGLE — the only way a chore enters or leaves Today's plan by hand.
+// Keeping `starred` and `dailyPlan` written together is what stops the two
+// from drifting apart (the midnight reset rebuilds the plan from `starred`).
 window.toggleStar = (id) => {
     chores = chores.map(c => {
         if (c.id === id) {
