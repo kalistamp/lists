@@ -146,41 +146,94 @@ h3 {
 }
 
 /* ---------- Forms ---------- */
-.form-toggle {
+
+/* Collapsible "Add task" card.
+   Class names must track the markup in index.html and the .collapsed class
+   toggled by toggleAddTaskForm() in script.js. The chevron is rotated by JS
+   via an inline transform, so only the transition is declared here. */
+.collapsible-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
   width: 100%;
-  background: transparent;
-  border: none;
   cursor: pointer;
-  padding: 0;
-  text-align: left;
-  color: inherit;
-  font: inherit;
+  user-select: none;
+  -webkit-user-select: none;
 }
-.form-toggle h3 {
-  margin: 0;
-  pointer-events: none;
-}
-.form-toggle-icon {
-  color: var(--ink-faint);
-  font-size: 0.85rem;
-  transition: transform var(--dur) var(--ease);
-  flex-shrink: 0;
-}
-.form-toggle.is-open .form-toggle-icon {
-  transform: rotate(180deg);
-}
-.form-body {
-  margin-top: 18px;
+.collapsible-title {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
   min-width: 0;
-  overflow: visible;
 }
-.form-body[hidden] { display: none !important; }
+/* h3 carries the section label; kill the stray bottom margin inside the row */
+.collapsible-header h3 {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.collapsible-header h3 i { color: var(--clay); font-size: 0.85rem; }
+.collapsible-sub {
+  font-family: var(--font-body);
+  font-size: 0.72rem;
+  letter-spacing: 0.02em;
+  color: var(--ink-faint);
+  text-transform: none;
+}
 
-.form-module {
+/* Small round ghost button holding the chevron */
+.btn-icon-ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  flex-shrink: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 50%;
+  color: var(--ink-faint);
+  cursor: pointer;
+  transition: color var(--dur) var(--ease),
+              background var(--dur) var(--ease),
+              border-color var(--dur) var(--ease);
+}
+.collapsible-header:hover .btn-icon-ghost {
+  background: var(--clay-wash);
+  border-color: var(--clay-soft);
+  color: var(--clay-deep);
+}
+.toggle-chevron {
+  font-size: 0.8rem;
+  transition: transform var(--dur) var(--ease);
+}
+
+/* THE FIX: the collapsed state actually has to hide the form.
+   Nothing styled .collapsed, so the header responded (chevron + subtitle are
+   JS-driven) while the form itself never opened or closed. */
+.collapsible-content { margin-top: 18px; min-width: 0; }
+.collapsible-content.collapsed { display: none; }
+/* Reveal without animating height, so nothing is ever clipped mid-transition */
+.collapsible-content:not(.collapsed) { animation: form-reveal 240ms var(--ease); }
+@keyframes form-reveal {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* Submit + Cancel sit side by side; Cancel only shows while editing */
+.form-actions-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+.form-actions-row .btn-primary { flex: 1 1 auto; width: auto; }
+.form-actions-row .btn-ghost { flex: 0 0 auto; }
+
+.form-module,
+.collapsible-module {
   overflow: visible;
   min-width: 0;
 }
