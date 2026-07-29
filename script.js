@@ -66,6 +66,57 @@ function checkMidnightReset() {
     }
 }
 
+// COLLAPSIBLE ADD TASK FORM (Requirement 3)
+window.toggleAddTaskForm = () => {
+    const formEl = document.getElementById('form');
+    const chevron = document.getElementById('add-task-chevron');
+    const subtitle = document.getElementById('form-subtitle');
+    if (!formEl) return;
+
+    const isCollapsed = formEl.classList.contains('collapsed');
+    if (isCollapsed) {
+        expandAddTaskForm();
+    } else {
+        if (!editState.isEditing) {
+            collapseAddTaskForm();
+        }
+    }
+};
+
+window.expandAddTaskForm = () => {
+    const formEl = document.getElementById('form');
+    const chevron = document.getElementById('add-task-chevron');
+    const subtitle = document.getElementById('form-subtitle');
+    if (!formEl) return;
+    formEl.classList.remove('collapsed');
+    if (chevron) chevron.style.transform = 'rotate(180deg)';
+    if (subtitle) subtitle.innerText = 'Click to collapse';
+};
+
+window.collapseAddTaskForm = () => {
+    const formEl = document.getElementById('form');
+    const chevron = document.getElementById('add-task-chevron');
+    const subtitle = document.getElementById('form-subtitle');
+    if (!formEl) return;
+    formEl.classList.add('collapsed');
+    if (chevron) chevron.style.transform = 'rotate(0deg)';
+    if (subtitle) subtitle.innerText = 'Click to expand';
+};
+
+window.cancelEdit = () => {
+    editState = { isEditing: false, id: null };
+    form.reset();
+    document.getElementById('form-title').innerHTML = '<i class="fas fa-plus-circle"></i> Add task';
+    document.getElementById('submit-btn').innerText = 'Add chore';
+    document.getElementById('cancel-edit-btn').style.display = 'none';
+    textInput.value = '';
+    durationInput.value = '';
+    urgencyInput.value = DEFAULT_URGENCY;
+    dueDateInput.value = '';
+    dueTimeInput.value = '';
+    collapseAddTaskForm();
+};
+
 // AUTHENTICATION
 const checkPwd = () => {
     if (document.getElementById('password-input').value === MY_PASSWORD) {
@@ -111,10 +162,7 @@ document.getElementById('save-settings-btn').addEventListener('click', () => {
     if (GITHUB_TOKEN && GIST_ID) window.manualSync();
 });
 
-// ─────────────────────────────────────────────
-// FEATURE 1: DELETE CONFIRMATION via existing modal
-// Returns a Promise that resolves true (confirmed) or false (cancelled)
-// ─────────────────────────────────────────────
+// DELETE CONFIRMATION MODAL
 function confirmDelete(choreName) {
     return new Promise((resolve) => {
         const modal = document.getElementById('confirm-modal');
@@ -126,7 +174,6 @@ function confirmDelete(choreName) {
         const yesBtn = document.getElementById('confirm-yes-btn');
         const noBtn = document.getElementById('confirm-no-btn');
 
-        // Clone nodes to remove any stale listeners from previous calls
         const freshYes = yesBtn.cloneNode(true);
         const freshNo = noBtn.cloneNode(true);
         yesBtn.parentNode.replaceChild(freshYes, yesBtn);
@@ -144,9 +191,7 @@ function confirmDelete(choreName) {
     });
 }
 
-// ─────────────────────────────────────────────
-// FEATURE 3: TIME BLOCK MODAL
-// ─────────────────────────────────────────────
+// TIME BLOCK MODAL
 let timeBlockTargetId = null;
 
 window.openTimeBlockModal = (choreId) => {
@@ -216,7 +261,6 @@ function effectiveDuration(chore) {
 }
 
 // A chore's due moment as an epoch ms, or null if it has no due date.
-// A date with no time is treated as end-of-day so it isn't "overdue" all day.
 function dueTimestamp(chore) {
     if (!chore.dueDate) return null;
     const time = chore.dueTime || '23:59';
@@ -224,7 +268,7 @@ function dueTimestamp(chore) {
     return Number.isFinite(ts) ? ts : null;
 }
 
-// Short human due label + overdue flag for rendering, e.g. { label: "Due Aug 3", overdue: true }
+// Short human due label + overdue flag for rendering
 function dueMeta(chore) {
     const ts = dueTimestamp(chore);
     if (ts === null) return null;
@@ -234,23 +278,21 @@ function dueMeta(chore) {
     return { label, overdue: ts < Date.now() };
 }
 
-// Colour-coded urgency chip. Rendered on every chore so the priority is explicit.
+// Colour-coded urgency chip.
 function urgencyTagHTML(chore) {
     const u = URGENCY_LEVELS.includes(chore.urgency) ? chore.urgency : DEFAULT_URGENCY;
     const label = u.charAt(0).toUpperCase() + u.slice(1);
     return `<span class="urgency-tag urgency-${u}">${label}</span>`;
 }
 
-// Due-date chip, styled red once the deadline has passed.
+// Due-date chip
 function dueTagHTML(chore) {
     const meta = dueMeta(chore);
     if (!meta) return '';
     return `<span class="due-tag${meta.overdue ? ' overdue' : ''}"><i class="fas fa-flag"></i> ${meta.overdue ? 'Overdue' : 'Due'} ${meta.label}</span>`;
 }
 
-// ─────────────────────────────────────────────
-// DAILY PLAN RENDERING — includes Feature 2 (inline completion) & Feature 3 (time blocks)
-// ─────────────────────────────────────────────
+// DAILY PLAN RENDERING
 function updateDailyPlan() {
     const planContainer = document.getElementById('list-daily-plan');
     const emptyMsg = document.getElementById('plan-empty');
@@ -268,103 +310,95 @@ function updateDailyPlan() {
     emptyMsg.style.display = 'none';
     countTag.innerText = `${dailyPlan.length} task${dailyPlan.length > 1 ? 's' : ''}`;
 
-    // Group chores by time block label for rendering.
-    // Chores with no time block go into a null group (always rendered last).
-    // Groups with a start time are sorted chronologically.
-    const groups = []; // [{ label: string|null, startMinutes: number|null, items: [{ id, idx }] }]
-    const labelMap = {}; // key → group index
-
-    // "HH:MM" → total minutes from midnight for sorting (null if missing)
-    function toMinutes(timeStr) {
-        if (!timeStr) return null;
-        const [h, m] = timeStr.split(':').map(Number);
-        return h * 60 + m;
-    }
+    const total = dailyPlan.length;
+    let currentLabel;
+    let ul = null;
 
     dailyPlan.forEach((id, idx) => {
+        const c = chores.find(ch => ch.id === id);
+        if (!c) return;
+
         const block = timeBlocks[id];
         let label = null;
-        let startMinutes = null;
         if (block && (block.start || block.end)) {
             const s = block.start ? formatTime(block.start) : '?';
             const e = block.end ? formatTime(block.end) : '?';
             label = `${s} – ${e}`;
-            startMinutes = toMinutes(block.start);
-        }
-        const key = label === null ? '__unblocked__' : label;
-        if (labelMap[key] === undefined) {
-            labelMap[key] = groups.length;
-            groups.push({ label, startMinutes, items: [] });
-        }
-        groups[labelMap[key]].items.push({ id, idx });
-    });
-
-    // Sort: timed groups ascending by start time, unblocked group always last
-    groups.sort((a, b) => {
-        if (a.label === null) return 1;
-        if (b.label === null) return -1;
-        const aMin = a.startMinutes ?? Infinity;
-        const bMin = b.startMinutes ?? Infinity;
-        return aMin - bMin;
-    });
-
-    groups.forEach(group => {
-        // If the group has a time block label, render a header
-        if (group.label !== null) {
-            const header = document.createElement('div');
-            header.className = 'timeblock-header';
-            header.innerHTML = `<i class="fas fa-clock"></i> ${group.label}`;
-            planContainer.appendChild(header);
         }
 
-        const ul = document.createElement('ul');
-        ul.className = 'chore-list plan-list';
+        if (ul === null || label !== currentLabel) {
+            if (label !== null) {
+                const header = document.createElement('div');
+                header.className = 'timeblock-header';
+                header.innerHTML = `<i class="fas fa-clock"></i> ${label}`;
+                planContainer.appendChild(header);
+            }
+            ul = document.createElement('ul');
+            ul.className = 'chore-list plan-list';
+            planContainer.appendChild(ul);
+            currentLabel = label;
+        }
 
-        group.items.forEach(({ id, idx }) => {
-            const c = chores.find(ch => ch.id === id);
-            if (!c) return;
+        const li = document.createElement('li');
+        li.className = `priority-${c.type} ${c.completed ? 'completed' : ''}`;
+        li.dataset.id = id;
 
-            const li = document.createElement('li');
-            li.className = `priority-${c.type} ${c.completed ? 'completed' : ''}`;
-            li.dataset.id = id;
+        attachPlanDrag(li, id);         // Touch long-press drag
+        attachPlanDesktopDrag(li, id);  // Desktop HTML5 drag
 
-            // Long-press drag-and-drop reorder
-            attachPlanDrag(li, id);
+        const blockIcon = timeBlocks[id]
+            ? '<i class="fas fa-clock plan-clock-icon assigned" title="Edit time block"></i>'
+            : '<i class="fas fa-clock plan-clock-icon" title="Assign time block"></i>';
 
-            const blockIcon = timeBlocks[id]
-                ? '<i class="fas fa-clock plan-clock-icon assigned" title="Edit time block"></i>'
-                : '<i class="fas fa-clock plan-clock-icon" title="Assign time block"></i>';
+        const checkClass = c.completed ? 'plan-complete-check done' : 'plan-complete-check';
+        const checkIcon = c.completed ? '<i class="fas fa-check"></i>' : '';
 
-            // Inline completion checkbox
-            const checkClass = c.completed ? 'plan-complete-check done' : 'plan-complete-check';
-            const checkIcon = c.completed ? '<i class="fas fa-check"></i>' : '';
-
-            li.innerHTML = `
-                <div class="${checkClass}" onclick="toggleChore(${id})" title="Toggle complete">
-                    ${checkIcon}
-                </div>
-                <span class="plan-num">${String(idx + 1).padStart(2, '0')}.</span>
-                <div class="plan-text">${c.text} ${urgencyTagHTML(c)}${dueTagHTML(c)}</div>
-                <span onclick="openTimeBlockModal(${id})">${blockIcon}</span>
-                <i class="fas fa-trash plan-trash" onclick="deleteChore(${id})"></i>
-            `;
-            ul.appendChild(li);
-        });
-
-        planContainer.appendChild(ul);
+        li.innerHTML = `
+            <div class="${checkClass}" onclick="toggleChore(${id})" title="Toggle complete">
+                ${checkIcon}
+            </div>
+            <span class="plan-num">${String(idx + 1).padStart(2, '0')}.</span>
+            <div class="plan-text">${c.text} ${urgencyTagHTML(c)}${dueTagHTML(c)}</div>
+            <div class="plan-actions">
+                <span class="plan-reorder">
+                    <button class="plan-arrow" onclick="movePlanItem(${id}, -1)" title="Move up" ${idx === 0 ? 'disabled' : ''}><i class="fas fa-chevron-up"></i></button>
+                    <button class="plan-arrow" onclick="movePlanItem(${id}, 1)" title="Move down" ${idx === total - 1 ? 'disabled' : ''}><i class="fas fa-chevron-down"></i></button>
+                </span>
+                <span class="plan-clock-wrap" onclick="openTimeBlockModal(${id})">${blockIcon}</span>
+                <button class="plan-icon-btn plan-edit" onclick="editChore(${id})" title="Edit"><i class="fas fa-pen"></i></button>
+                <i class="fas fa-trash plan-trash" onclick="deleteChore(${id})" title="Delete"></i>
+            </div>
+        `;
+        ul.appendChild(li);
     });
 }
 
-// ─────────────────────────────────────────────
-// SWIPE LEFT TO REVEAL EDIT / DELETE
-// ─────────────────────────────────────────────
+// Move a plan item up (-1) or down (+1) and persist immediately (Requirement 1).
+window.movePlanItem = (id, dir) => {
+    const i = dailyPlan.indexOf(id);
+    if (i === -1) return;
+    const j = i + dir;
+    if (j < 0 || j >= dailyPlan.length) return;
+    const tmp = dailyPlan[i];
+    dailyPlan[i] = dailyPlan[j];
+    dailyPlan[j] = tmp;
+    persistPlanOrder();
+};
+
+function persistPlanOrder() {
+    savePlan();
+    saveToGist();
+    updateDailyPlan();
+}
+
+// SWIPE LEFT TO REVEAL EDIT / DELETE (MOBILE)
 let activeSwipeEl = null;
 
 function attachSwipe(li, id) {
     let startX = 0;
     let startY = 0;
     let isDragging = false;
-    const THRESHOLD = 60; // px needed to fully reveal actions
+    const THRESHOLD = 60;
 
     li.addEventListener('touchstart', (e) => {
         startX = e.touches[0].clientX;
@@ -375,7 +409,6 @@ function attachSwipe(li, id) {
     li.addEventListener('touchmove', (e) => {
         const dx = e.touches[0].clientX - startX;
         const dy = e.touches[0].clientY - startY;
-        // Only handle horizontal swipes
         if (!isDragging && Math.abs(dy) > Math.abs(dx)) return;
         isDragging = true;
         if (dx < 0) {
@@ -394,7 +427,6 @@ function attachSwipe(li, id) {
         if (!swiped) {
             li.style.transform = '';
         }
-        // Close any previously opened swipe that isn't this one
         if (activeSwipeEl && activeSwipeEl !== li) {
             activeSwipeEl.style.transform = '';
             activeSwipeEl.classList.remove('swiped');
@@ -403,7 +435,6 @@ function attachSwipe(li, id) {
     });
 }
 
-// Close open swipe if user taps elsewhere
 document.addEventListener('touchstart', (e) => {
     if (activeSwipeEl && !activeSwipeEl.contains(e.target)) {
         activeSwipeEl.style.transform = '';
@@ -412,18 +443,59 @@ document.addEventListener('touchstart', (e) => {
     }
 }, { passive: true });
 
-// ─────────────────────────────────────────────
-// DRAG-AND-DROP REORDER FOR TODAY'S PLAN
-// ─────────────────────────────────────────────
+// DESKTOP HTML5 DRAG-AND-DROP FOR TODAY'S PLAN (Requirement 1)
 let dragSrcId = null;
 
+function attachPlanDesktopDrag(li, id) {
+    li.setAttribute('draggable', 'true');
+    li.addEventListener('dragstart', (e) => {
+        dragSrcId = id;
+        li.classList.add('drag-source');
+        if (e.dataTransfer) {
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('text/plain', String(id));
+        }
+    });
+
+    li.addEventListener('dragend', () => {
+        li.classList.remove('drag-source');
+        document.querySelectorAll('.plan-list li').forEach(el => el.classList.remove('drag-over'));
+        dragSrcId = null;
+    });
+
+    li.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+        li.classList.add('drag-over');
+    });
+
+    li.addEventListener('dragleave', () => {
+        li.classList.remove('drag-over');
+    });
+
+    li.addEventListener('drop', (e) => {
+        e.preventDefault();
+        li.classList.remove('drag-over');
+        if (dragSrcId !== null && dragSrcId !== id) {
+            const fromIdx = dailyPlan.indexOf(dragSrcId);
+            const toIdx = dailyPlan.indexOf(id);
+            if (fromIdx !== -1 && toIdx !== -1) {
+                dailyPlan.splice(fromIdx, 1);
+                dailyPlan.splice(toIdx, 0, dragSrcId);
+                persistPlanOrder();
+            }
+        }
+    });
+}
+
+// TOUCH DRAG-AND-DROP FOR TODAY'S PLAN
 function attachPlanDrag(li, id) {
     let longPressTimer = null;
     let dragActive = false;
     let startX = 0;
     let startY = 0;
     let currentDropTarget = null;
-    const MOVE_CANCEL_THRESHOLD = 8; // px of movement that cancels the long-press
+    const MOVE_CANCEL_THRESHOLD = 8;
 
     li.addEventListener('touchstart', (e) => {
         startX = e.touches[0].clientX;
@@ -433,21 +505,18 @@ function attachPlanDrag(li, id) {
             dragSrcId = id;
             li.classList.add('drag-source');
         }, 500);
-    }, { passive: false }); // must be false so touchmove can call preventDefault
+    }, { passive: false });
 
     li.addEventListener('touchmove', (e) => {
         const dx = Math.abs(e.touches[0].clientX - startX);
         const dy = Math.abs(e.touches[0].clientY - startY);
 
-        // Cancel the timer only if the finger has actually moved (not a micro-jitter)
         if (!dragActive && (dx > MOVE_CANCEL_THRESHOLD || dy > MOVE_CANCEL_THRESHOLD)) {
             clearTimeout(longPressTimer);
             return;
         }
 
         if (!dragActive) return;
-
-        // Prevent page scroll while dragging
         e.preventDefault();
 
         const touch = e.touches[0];
@@ -471,15 +540,14 @@ function attachPlanDrag(li, id) {
         li.classList.remove('drag-source');
         if (currentDropTarget) {
             currentDropTarget.classList.remove('drag-over');
-            const targetId = parseInt(currentDropTarget.dataset.id);
+            const targetId = parseInt(currentDropTarget.dataset.id, 10);
             if (targetId && dragSrcId !== targetId) {
                 const fromIdx = dailyPlan.indexOf(dragSrcId);
                 const toIdx = dailyPlan.indexOf(targetId);
                 if (fromIdx !== -1 && toIdx !== -1) {
                     dailyPlan.splice(fromIdx, 1);
                     dailyPlan.splice(toIdx, 0, dragSrcId);
-                    savePlan();
-                    updateDailyPlan();
+                    persistPlanOrder();
                 }
             }
             currentDropTarget = null;
@@ -499,13 +567,12 @@ function attachPlanDrag(li, id) {
     });
 }
 
-// UI RENDERING
+// UI RENDERING FOR CATEGORY LISTS (Requirement 2)
 function updateUI() {
-    Object.values(lists).forEach(l => l.innerHTML = '');
+    Object.values(lists).forEach(l => { if (l) l.innerHTML = ''; });
 
     ['daily', 'errands', 'oneoff'].forEach(type => {
         const group = chores.filter(c => c.type === type);
-        // Completed sink to bottom, then starred, then by urgency, then soonest due
         group.sort((a, b) => {
             if (a.completed !== b.completed) return a.completed ? 1 : -1;
             if (!!a.starred !== !!b.starred) return a.starred ? -1 : 1;
@@ -520,21 +587,24 @@ function updateUI() {
             }
             return 0;
         });
+
         group.forEach(c => {
             const isQueued = dailyPlan.includes(c.id);
             const li = document.createElement('li');
             li.className = `priority-${c.type} ${c.completed ? 'completed' : ''}`;
             li.dataset.id = c.id;
 
-            // Swipe-left to reveal edit/delete
+            // Swipe-left on touch/mobile
             attachSwipe(li, c.id);
 
             li.onclick = (e) => {
                 if (
                     e.target.tagName === 'I' ||
+                    e.target.tagName === 'BUTTON' ||
                     e.target.closest('.chore-queue-check') ||
                     e.target.closest('.chore-star-btn') ||
-                    e.target.closest('.swipe-actions')
+                    e.target.closest('.swipe-actions') ||
+                    e.target.closest('.chore-actions')
                 ) return;
                 toggleChore(c.id);
             };
@@ -553,6 +623,12 @@ function updateUI() {
                     ${c.durationMin ? `<span class="dur-tag">${formatDuration(c.durationMin)}</span>` : ''}
                     ${dueTagHTML(c)}
                 </div>
+                <!-- DESKTOP / ALWAYS VISIBLE ACTION BUTTONS (Requirement 2) -->
+                <div class="chore-actions">
+                    <button class="chore-action-btn chore-edit-btn" onclick="editChore(${c.id})" title="Edit task"><i class="fas fa-pen"></i></button>
+                    <button class="chore-action-btn chore-delete-btn" onclick="deleteChore(${c.id})" title="Delete task"><i class="fas fa-trash"></i></button>
+                </div>
+                <!-- MOBILE SWIPE ACTIONS -->
                 <div class="swipe-actions" id="swipe-actions-${c.id}">
                     <button class="swipe-btn swipe-edit" onclick="editChore(${c.id})"><i class="fas fa-edit"></i></button>
                     <button class="swipe-btn swipe-delete" onclick="deleteChore(${c.id})"><i class="fas fa-trash"></i></button>
@@ -597,27 +673,49 @@ window.toggleStar = (id) => {
     saveAndSync();
 };
 
-// CORE ACTIONS
+// CORE FORM ACTION: CREATE / UPDATE
 form.addEventListener('submit', (e) => {
     e.preventDefault();
     const choreText = textInput.value.trim();
     if (!choreText) return;
 
-    // Blank duration stays undefined so the agent can estimate it later
     const rawDuration = parseInt(durationInput.value, 10);
     const durationMin = Number.isFinite(rawDuration) && rawDuration > 0 ? rawDuration : undefined;
 
     const urgency = URGENCY_LEVELS.includes(urgencyInput.value) ? urgencyInput.value : DEFAULT_URGENCY;
     const dueDate = dueDateInput.value || undefined;
     const dueTime = dueTimeInput.value || undefined;
+    const category = typeInput.value;
 
     if (editState.isEditing) {
-        chores = chores.map(c => c.id === editState.id ? { ...c, text: choreText, type: typeInput.value, urgency, dueDate, dueTime, durationMin } : c);
+        // Requirement 2: Edit updates EVERY creation field
+        chores = chores.map(c => c.id === editState.id ? {
+            ...c,
+            text: choreText,
+            type: category,
+            urgency,
+            dueDate,
+            dueTime,
+            durationMin
+        } : c);
+
         editState = { isEditing: false, id: null };
-        document.getElementById('form-title').innerText = 'Add task';
+        document.getElementById('form-title').innerHTML = '<i class="fas fa-plus-circle"></i> Add task';
         document.getElementById('submit-btn').innerText = 'Add chore';
+        document.getElementById('cancel-edit-btn').style.display = 'none';
+        collapseAddTaskForm();
     } else {
-        chores.push({ text: choreText, type: typeInput.value, urgency, dueDate, dueTime, completed: false, starred: false, durationMin, id: Date.now() });
+        chores.push({
+            text: choreText,
+            type: category,
+            urgency,
+            dueDate,
+            dueTime,
+            completed: false,
+            starred: false,
+            durationMin,
+            id: Date.now()
+        });
     }
 
     textInput.value = '';
@@ -640,27 +738,37 @@ window.resetMaintenance = () => {
     saveAndSync();
 };
 
-// FEATURE 4: Auto-scroll to top on edit
+// EDIT CHORE (Requirement 2)
 window.editChore = (id) => {
     const c = chores.find(chore => chore.id === id);
-    textInput.value = c.text;
-    typeInput.value = c.type;
+    if (!c) return;
+
+    // Populate all fields
+    textInput.value = c.text || '';
+    typeInput.value = c.type || 'oneoff';
     urgencyInput.value = c.urgency || DEFAULT_URGENCY;
     dueDateInput.value = c.dueDate || '';
     dueTimeInput.value = c.dueTime || '';
     durationInput.value = c.durationMin || '';
+
     editState = { isEditing: true, id };
-    document.getElementById('form-title').innerText = 'Edit task';
+    document.getElementById('form-title').innerHTML = '<i class="fas fa-edit"></i> Edit task';
     document.getElementById('submit-btn').innerText = 'Update chore';
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    document.getElementById('cancel-edit-btn').style.display = 'inline-block';
+
+    // Expand the form and scroll into view
+    expandAddTaskForm();
+    document.getElementById('add-task-module').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    textInput.focus();
 };
 
-// FEATURE 1: Delete with confirmation modal
+// DELETE CHORE (Requirement 2)
 window.deleteChore = async (id) => {
     const chore = chores.find(c => c.id === id);
     const name = chore ? chore.text : 'this chore';
     const confirmed = await confirmDelete(name);
     if (!confirmed) return;
+
     chores = chores.filter(c => c.id !== id);
     dailyPlan = dailyPlan.filter(pid => pid !== id);
     delete timeBlocks[id];
@@ -719,8 +827,6 @@ window.manualSync = async () => {
         const data = JSON.parse(json.files[GIST_FILENAME].content);
         chores = data.chores || [];
         notesArea.innerText = data.notes || "";
-        // Only adopt plan/blocks when the gist actually carries them, so older
-        // gists written before this feature don't wipe a schedule built locally.
         if (Array.isArray(data.dailyPlan)) {
             dailyPlan = data.dailyPlan;
             savePlan();
@@ -743,12 +849,7 @@ notesArea.addEventListener('input', () => {
     saveToGist();
 });
 
-// ─────────────────────────────────────────────
 // APP BRIDGE
-// The one seam agent.js is allowed to touch. Keeping this explicit means the
-// agent never reaches into module internals, and every mutation it makes goes
-// through the same persistence path as a human click.
-// ─────────────────────────────────────────────
 window.ChoresApp = {
     getChores: () => chores.map(c => ({ ...c })),
     getPlan: () => [...dailyPlan],
@@ -773,12 +874,10 @@ window.ChoresApp = {
         localStorage.setItem('choreNotes', notesArea.innerText);
     },
 
-    // Re-render and push everything to the gist in one call
     commit() {
         saveAndSync();
     },
 
-    // Reuse the human-facing confirmation modal for destructive agent actions
     confirmDelete,
     effectiveDuration,
     formatTime,
