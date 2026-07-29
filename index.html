@@ -41,7 +41,7 @@
             <div class="field-group">
                 <label>Gemini model</label>
                 <input type="text" id="gemini-model-input" placeholder="gemini-2.5-flash">
-                <p class="field-hint">Swap this if the model id changes or you hit quota on the default.</p>
+                <p class="field-hint">The planner tries this first, then falls back to other current models and, if needed, auto-detects one your key supports. Only change it to pin a specific id.</p>
             </div>
             <div class="modal-actions">
                 <button class="btn btn-primary" id="save-settings-btn">Save</button>

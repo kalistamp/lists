@@ -11,9 +11,17 @@
 
   const API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
   const DEFAULT_MODEL = 'gemini-2.5-flash';
-  // Tried in order after the user's configured model if that one is unavailable.
-  // The scheduling task is simple, so a smaller model is an acceptable fallback.
-  const FALLBACK_MODELS = ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-pro'];
+  // Static fast-path chain, tried after the user's configured model. Kept to
+  // current generateContent ids: the retired 1.5 models and 1.0 "gemini-pro"
+  // 404 on keys created today. The *-latest aliases are Google-maintained and
+  // always resolve to a live model, so they make good rot-proof fallbacks.
+  // If every id here still misses, callGemini falls back to live ListModels
+  // discovery (see discoverModels) so the chain can never dead-end on staleness.
+  const FALLBACK_MODELS = ['gemini-2.0-flash', 'gemini-flash-latest', 'gemini-pro-latest'];
+  // Applied to whatever ListModels returns for this key, first substring hit
+  // wins; unmatched models keep their API order after these. Prefers a fast,
+  // current flash model for a simple scheduling task, then pro.
+  const DISCOVERY_PREFERENCE = ['flash-latest', '2.5-flash', '2.0-flash', 'flash', 'pro-latest', '2.5-pro', 'pro'];
   const MAX_STEPS = 8;             // free tier is rate-limited; cap the loop
   const CATEGORIES = ['daily', 'errands', 'oneoff'];
   const URGENCIES = ['low', 'medium', 'high', 'urgent'];
@@ -466,8 +474,10 @@
 
   // ─────────────────────────────────────────────
   // GEMINI CALL
-  // The configured model is tried first; on a model-availability error we fall
-  // back through FALLBACK_MODELS before giving up. Rate-limit and bad-key errors
+  // Model resolution is three-tiered: (1) the configured model, then the static
+  // FALLBACK_MODELS chain; (2) if all of those hit availability errors, live
+  // ListModels discovery picks a model this key actually supports; (3) the first
+  // model that answers is pinned for the session. Rate-limit and bad-key errors
   // are NOT retried on other models — they'd fail identically — so they surface
   // straight away.
   // ─────────────────────────────────────────────
@@ -521,46 +531,103 @@
     return candidate;
   }
 
+  // One generateContent attempt. Returns { candidate } on success or
+  // { unavailable, detail } for a model-specific miss. Errors that every model
+  // would share (rate limit, bad key) and genuine errors are thrown.
+  async function attemptModel(model, contents, systemPrompt) {
+    const res = await requestModel(model, contents, systemPrompt);
+    if (res.ok) return { candidate: candidateFromJson(await res.json()) };
+
+    const detail = await readErrorDetail(res);
+    if (res.status === 429) {
+      throw new Error(`Gemini free-tier rate limit hit. Wait a minute and try again.${detail ? ` (${detail})` : ''}`);
+    }
+    if (res.status === 400 && /API key/i.test(detail)) {
+      throw new Error('Gemini rejected the API key. Check it in Settings.');
+    }
+    if (isModelAvailabilityError(res.status, detail)) return { unavailable: true, detail };
+    throw new Error(`Gemini error ${res.status}${detail ? `: ${detail}` : ''}`);
+  }
+
+  // Order the models ListModels reported by DISCOVERY_PREFERENCE (first substring
+  // hit wins), then prefer full over "lite" and stable over preview/experimental
+  // within the same bucket; anything unmatched keeps its API order, last.
+  function rankModels(names) {
+    const rank = (n) => [
+      (i => i === -1 ? DISCOVERY_PREFERENCE.length : i)(DISCOVERY_PREFERENCE.findIndex(p => n.includes(p))),
+      /lite/.test(n) ? 1 : 0,
+      /preview|exp|thinking/.test(n) ? 1 : 0
+    ];
+    return names
+      .map((n, idx) => ({ n, idx, r: rank(n) }))
+      .sort((a, b) => a.r[0] - b.r[0] || a.r[1] - b.r[1] || a.r[2] - b.r[2] || a.idx - b.idx)
+      .map(x => x.n);
+  }
+
+  // Ask the API which models THIS key can use for generateContent. This is the
+  // self-healing backstop: even if every hardcoded id is retired, we still find
+  // a live model instead of dead-ending on a stale list.
+  async function discoverModels() {
+    const res = await fetch(`${API_BASE}?key=${encodeURIComponent(GEMINI_KEY)}&pageSize=1000`);
+    if (!res.ok) return { ok: false, status: res.status, detail: await readErrorDetail(res) };
+    const json = await res.json();
+    const names = (json.models || [])
+      .filter(m => (m.supportedGenerationMethods || []).includes('generateContent'))
+      .map(m => String(m.name).replace(/^models\//, ''));
+    return { ok: true, models: rankModels(names) };
+  }
+
   async function callGemini(contents, systemPrompt) {
-    // Stick with a model that already worked this session; otherwise try the chain.
-    const candidates = resolvedModel ? [resolvedModel] : modelCandidates();
-    let lastDetail = '';
+    const tried = [];
 
-    for (let i = 0; i < candidates.length; i++) {
-      const model = candidates[i];
-      const res = await requestModel(model, contents, systemPrompt);
-
-      if (res.ok) {
-        const candidate = candidateFromJson(await res.json());
-        if (resolvedModel !== model) {
-          if (i > 0) logNote(`“${candidates[0]}” unavailable — using “${model}” instead.`);
-          resolvedModel = model;
+    // Walk a list of model ids, skipping any already tried, and return the first
+    // candidate. Pins the winner and notes it once when it isn't the primary.
+    const runChain = async (models) => {
+      for (const model of models) {
+        if (tried.includes(model)) continue;
+        tried.push(model);
+        const r = await attemptModel(model, contents, systemPrompt);
+        if (r.candidate) {
+          if (resolvedModel !== model) {
+            if (tried.length > 1) logNote(`Using Gemini model “${model}”.`);
+            resolvedModel = model;
+          }
+          return r.candidate;
         }
-        return candidate;
       }
+      return null;
+    };
 
-      const detail = await readErrorDetail(res);
-      lastDetail = detail;
-
-      // Errors that every model would share — don't waste the fallback chain on them.
-      if (res.status === 429) {
-        throw new Error(`Gemini free-tier rate limit hit. Wait a minute and try again.${detail ? ` (${detail})` : ''}`);
-      }
-      if (res.status === 400 && /API key/i.test(detail)) {
-        throw new Error('Gemini rejected the API key. Check it in Settings.');
-      }
-
-      // Model-specific failure: try the next candidate if there is one.
-      if (isModelAvailabilityError(res.status, detail)) {
-        if (i < candidates.length - 1) continue;
-        throw new Error(`No available Gemini model. Tried ${candidates.join(', ')}. Last response: ${detail || `HTTP ${res.status}`}. Set a working model id in Settings.`);
-      }
-
-      // Anything else is a genuine error — surface it without burning the chain.
-      throw new Error(`Gemini error ${res.status}${detail ? `: ${detail}` : ''}`);
+    // 1) A model already proven this session — reuse it, but if it has since
+    //    stopped working, clear the pin and fall through to a fresh search.
+    if (resolvedModel) {
+      const c = await runChain([resolvedModel]);
+      if (c) return c;
+      resolvedModel = null;
     }
 
-    throw new Error(`No Gemini model could be reached${lastDetail ? `: ${lastDetail}` : ''}.`);
+    // 2) Configured model, then the static fast-path chain.
+    let c = await runChain(modelCandidates());
+    if (c) return c;
+
+    // 3) Self-healing: discover what this key actually supports.
+    const disc = await discoverModels();
+    if (!disc.ok) {
+      if (disc.status === 400 && /API key/i.test(disc.detail)) {
+        throw new Error('Gemini rejected the API key. Check it in Settings.');
+      }
+      throw new Error(`No configured Gemini model worked, and the available-model list couldn't be read (HTTP ${disc.status}${disc.detail ? `: ${disc.detail}` : ''}).`);
+    }
+    if (disc.models.length) logNote(`Configured models unavailable — checking ${disc.models.length} model(s) your key supports.`);
+    c = await runChain(disc.models);
+    if (c) return c;
+
+    throw new Error(
+      `No available Gemini model. Tried ${tried.join(', ') || '(none)'}. ` +
+      (disc.models.length
+        ? `Your key's generateContent models are: ${disc.models.join(', ')}. Set one of these in Settings.`
+        : 'ListModels returned no generateContent models — the key may be invalid or the Generative Language API not enabled for it.')
+    );
   }
 
   // ─────────────────────────────────────────────
