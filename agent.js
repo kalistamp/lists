@@ -11,11 +11,19 @@
 
   const API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
   const DEFAULT_MODEL = 'gemini-2.5-flash';
+  // Tried in order after the user's configured model if that one is unavailable.
+  // The scheduling task is simple, so a smaller model is an acceptable fallback.
+  const FALLBACK_MODELS = ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-pro'];
   const MAX_STEPS = 8;             // free tier is rate-limited; cap the loop
   const CATEGORIES = ['daily', 'errands', 'oneoff'];
+  const URGENCIES = ['low', 'medium', 'high', 'urgent'];
 
   let GEMINI_KEY = localStorage.getItem('geminiKey') || '';
   let GEMINI_MODEL = localStorage.getItem('geminiModel') || DEFAULT_MODEL;
+
+  // Once a model answers this session we pin it, so the loop doesn't re-probe a
+  // dead model on every step. Reset whenever the key or configured model changes.
+  let resolvedModel = null;
 
   let running = false;
 
@@ -41,6 +49,9 @@
         properties: {
           text: { type: 'STRING', description: 'What needs doing, phrased as a short task.' },
           category: { type: 'STRING', enum: CATEGORIES, description: 'daily = recurring habit, errands = shopping/out-of-house, oneoff = single task.' },
+          urgency: { type: 'STRING', enum: URGENCIES, description: 'How pressing the task is. Defaults to medium. Use high/urgent for things that must happen today or have a near deadline.' },
+          due_date: { type: 'STRING', description: 'Optional deadline date as "YYYY-MM-DD".' },
+          due_time: { type: 'STRING', description: 'Optional deadline time as 24-hour "HH:MM". Only meaningful with due_date.' },
           duration_min: { type: 'NUMBER', description: 'Realistic estimate in minutes.' },
           starred: { type: 'BOOLEAN', description: 'Star it as a priority for today.' }
         },
@@ -49,13 +60,16 @@
     },
     {
       name: 'update_chore',
-      description: 'Change the text, category or estimated duration of an existing chore. Use this to fill in duration estimates for chores that have none.',
+      description: 'Change the text, category, urgency, due date or estimated duration of an existing chore. Use this to fill in duration estimates for chores that have none, or to raise urgency on a task the user flags as pressing.',
       parameters: {
         type: 'OBJECT',
         properties: {
           chore_id: { type: 'NUMBER' },
           text: { type: 'STRING' },
           category: { type: 'STRING', enum: CATEGORIES },
+          urgency: { type: 'STRING', enum: URGENCIES },
+          due_date: { type: 'STRING', description: 'Deadline date "YYYY-MM-DD". Pass an empty string to clear it.' },
+          due_time: { type: 'STRING', description: 'Deadline time "HH:MM". Pass an empty string to clear it.' },
           duration_min: { type: 'NUMBER' }
         },
         required: ['chore_id']
@@ -178,12 +192,17 @@
       id: c.id,
       text: c.text,
       category: c.type,
+      urgency: URGENCIES.includes(c.urgency) ? c.urgency : 'medium',
       completed: !!c.completed,
       starred: !!c.starred,
       in_plan: plan.includes(c.id),
       duration_min: c.durationMin || null
     };
     if (!c.durationMin) out.duration_assumed = App().effectiveDuration(c);
+    if (c.dueDate) {
+      out.due_date = c.dueDate;
+      if (c.dueTime) out.due_time = c.dueTime;
+    }
     const b = blocks[c.id];
     if (b) out.time_block = `${b.start || '?'}–${b.end || '?'}`;
     return out;
@@ -208,11 +227,15 @@
       const text = String(args.text || '').trim();
       if (!text) return { error: 'text is required' };
       const category = CATEGORIES.includes(args.category) ? args.category : 'oneoff';
+      const urgency = URGENCIES.includes(args.urgency) ? args.urgency : 'medium';
       const id = Date.now() + Math.floor(Math.random() * 1000);
       const chore = {
         id,
         text,
         type: category,
+        urgency,
+        dueDate: args.due_date ? String(args.due_date).trim() : undefined,
+        dueTime: args.due_time ? String(args.due_time).trim() : undefined,
         completed: false,
         starred: !!args.starred,
         durationMin: Number(args.duration_min) > 0 ? Math.round(Number(args.duration_min)) : undefined
@@ -222,7 +245,7 @@
         const plan = App().getPlan();
         if (!plan.includes(id)) App().setPlan([...plan, id]);
       }
-      return { added: { id, text, category, duration_min: chore.durationMin || null, starred: chore.starred } };
+      return { added: { id, text, category, urgency, due_date: chore.dueDate || null, duration_min: chore.durationMin || null, starred: chore.starred } };
     },
 
     update_chore(args) {
@@ -234,6 +257,10 @@
         const u = { ...c };
         if (typeof args.text === 'string' && args.text.trim()) { u.text = args.text.trim(); changed.text = u.text; }
         if (CATEGORIES.includes(args.category)) { u.type = args.category; changed.category = u.type; }
+        if (URGENCIES.includes(args.urgency)) { u.urgency = args.urgency; changed.urgency = u.urgency; }
+        // An explicit empty string clears the field; a non-empty string sets it.
+        if (typeof args.due_date === 'string') { u.dueDate = args.due_date.trim() || undefined; changed.due_date = u.dueDate || null; }
+        if (typeof args.due_time === 'string') { u.dueTime = args.due_time.trim() || undefined; changed.due_time = u.dueTime || null; }
         if (Number(args.duration_min) > 0) { u.durationMin = Math.round(Number(args.duration_min)); changed.duration_min = u.durationMin; }
         return u;
       });
@@ -402,14 +429,24 @@
       '',
       `Today is ${now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}. The current time is ${now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}.`,
       '',
+      'URGENCY & PRIORITY SCORING',
+      'Every chore carries an urgency level. Treat it as a strict priority ladder and score each chore before ordering the day:',
+      '  • urgent (score 4): must happen today. Give it the earliest suitable slot and never leave it out.',
+      '  • high   (score 3): important today. Schedule ahead of medium and low; only drop it if the day is genuinely full.',
+      '  • medium (score 2): normal. Fill the middle of the day with these.',
+      '  • low    (score 1): nice-to-have. Schedule late, and these are the first to drop when trimming to fit.',
+      'Due dates override the stored level upward, never downward. Using today’s date and time given above: a chore due today or already past due counts as at least high; a chore due within the next hour, or already overdue, counts as urgent. A chore is never demoted below its stored urgency because of its due date.',
+      'Break ties in this order: higher urgency score first, then nearer due date/time, then starred, then daily habits, then time-sensitive errands, then one-offs.',
+      'When the load cap forces you to leave chores out, drop strictly from the bottom of the ladder up. Never leave an urgent or overdue task unscheduled while a lower-scored one is placed.',
+      '',
       'HOW TO BUILD A DAY',
       'When asked to plan the day, you will be told a wake-up or start time. Then:',
-      '1. Review every incomplete chore. Prioritise in this order: starred items first, then daily habits, then errands that look time-sensitive, then one-offs.',
-      '2. Choose a BALANCED SUBSET that fits comfortably in the waking hours — not everything on the list. A day that feels achievable beats a day that is technically full. Leaving good chores for tomorrow is the correct behaviour, not a failure.',
-      '3. Order them sensibly: physical or demanding things earlier, group errands into one outing so travel is shared, quiet or low-effort tasks later in the day.',
+      '1. Score every incomplete chore with the urgency ladder above, adjusting for due dates. Sort by that score, breaking ties as described. Urgent and overdue tasks go into the earliest slots.',
+      '2. Choose a BALANCED SUBSET that fits comfortably in the waking hours — not everything on the list. A day that feels achievable beats a day that is technically full. Leaving low-urgency chores for tomorrow is the correct behaviour, not a failure — but an urgent or overdue task is not something you may defer.',
+      '3. Order them sensibly within the priority scoring: place higher-urgency and time-critical work in the earlier, protected slots; group errands into one outing so travel is shared; keep quiet or low-effort, low-urgency tasks for later in the day.',
       '4. Estimate a realistic duration for anything without one, and round to something human (15, 30, 45, 60 minutes). Err generous.',
       '5. Call build_day_schedule with the ordered list. It does the clock maths, inserts the cushions and enforces the limits. Never compute times yourself.',
-      '6. Read what it returns. Report the schedule chronologically with exact start and end times, then say plainly what you left out and why.',
+      '6. Read what it returns. Report the schedule chronologically with exact start and end times, then say plainly what you left out and why — naming the urgency of anything you dropped.',
       '',
       'The default cushion is 15 minutes and the default load cap is 65% of waking hours. If the user asks for a gentle, slow or recovery day, raise the cushion to 20–30 and drop the load cap to 40–50. If they ask for a productive push, you may go to 75–80, but never remove cushions entirely.',
       '',
@@ -429,10 +466,33 @@
 
   // ─────────────────────────────────────────────
   // GEMINI CALL
+  // The configured model is tried first; on a model-availability error we fall
+  // back through FALLBACK_MODELS before giving up. Rate-limit and bad-key errors
+  // are NOT retried on other models — they'd fail identically — so they surface
+  // straight away.
   // ─────────────────────────────────────────────
-  async function callGemini(contents, systemPrompt) {
-    const url = `${API_BASE}/${encodeURIComponent(GEMINI_MODEL)}:generateContent?key=${encodeURIComponent(GEMINI_KEY)}`;
-    const res = await fetch(url, {
+
+  // Configured model first, then the fallbacks, de-duplicated.
+  function modelCandidates() {
+    const ordered = [GEMINI_MODEL, ...FALLBACK_MODELS];
+    return ordered.filter((m, i) => m && ordered.indexOf(m) === i);
+  }
+
+  // True when the failure is specific to this model id, so another model is
+  // worth trying: 404 (model not found for this key/API version), or a 400/403
+  // whose message points at the model rather than the key or quota.
+  function isModelAvailabilityError(status, detail) {
+    if (status === 404) return true;
+    const d = (detail || '').toLowerCase();
+    if ((status === 400 || status === 403) && /API key/i.test(detail) === false) {
+      return /model|not found|not supported|does not exist|no access|permission/.test(d);
+    }
+    return false;
+  }
+
+  async function requestModel(model, contents, systemPrompt) {
+    const url = `${API_BASE}/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(GEMINI_KEY)}`;
+    return fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -443,33 +503,64 @@
         generationConfig: { temperature: 0.4, maxOutputTokens: 2048 }
       })
     });
+  }
 
-    if (!res.ok) {
-      let detail = '';
-      try {
-        const err = await res.json();
-        detail = (err && err.error && err.error.message) || '';
-      } catch (e) { /* body wasn't json */ }
+  async function readErrorDetail(res) {
+    try {
+      const err = await res.json();
+      return (err && err.error && err.error.message) || '';
+    } catch (e) { return ''; /* body wasn't json */ }
+  }
 
-      if (res.status === 429) {
-        throw new Error(`Gemini free-tier rate limit hit. Wait a minute and try again.${detail ? ` (${detail})` : ''}`);
-      }
-      if (res.status === 400 && /API key/i.test(detail)) {
-        throw new Error('Gemini rejected the API key. Check it in Settings.');
-      }
-      if (res.status === 404) {
-        throw new Error(`Model "${GEMINI_MODEL}" not available for this key. Try another model id in Settings.`);
-      }
-      throw new Error(`Gemini error ${res.status}${detail ? `: ${detail}` : ''}`);
-    }
-
-    const json = await res.json();
+  function candidateFromJson(json) {
     const candidate = json.candidates && json.candidates[0];
     if (!candidate) {
       const blocked = json.promptFeedback && json.promptFeedback.blockReason;
       throw new Error(blocked ? `Request blocked by Gemini (${blocked}).` : 'Gemini returned no candidates.');
     }
     return candidate;
+  }
+
+  async function callGemini(contents, systemPrompt) {
+    // Stick with a model that already worked this session; otherwise try the chain.
+    const candidates = resolvedModel ? [resolvedModel] : modelCandidates();
+    let lastDetail = '';
+
+    for (let i = 0; i < candidates.length; i++) {
+      const model = candidates[i];
+      const res = await requestModel(model, contents, systemPrompt);
+
+      if (res.ok) {
+        const candidate = candidateFromJson(await res.json());
+        if (resolvedModel !== model) {
+          if (i > 0) logNote(`“${candidates[0]}” unavailable — using “${model}” instead.`);
+          resolvedModel = model;
+        }
+        return candidate;
+      }
+
+      const detail = await readErrorDetail(res);
+      lastDetail = detail;
+
+      // Errors that every model would share — don't waste the fallback chain on them.
+      if (res.status === 429) {
+        throw new Error(`Gemini free-tier rate limit hit. Wait a minute and try again.${detail ? ` (${detail})` : ''}`);
+      }
+      if (res.status === 400 && /API key/i.test(detail)) {
+        throw new Error('Gemini rejected the API key. Check it in Settings.');
+      }
+
+      // Model-specific failure: try the next candidate if there is one.
+      if (isModelAvailabilityError(res.status, detail)) {
+        if (i < candidates.length - 1) continue;
+        throw new Error(`No available Gemini model. Tried ${candidates.join(', ')}. Last response: ${detail || `HTTP ${res.status}`}. Set a working model id in Settings.`);
+      }
+
+      // Anything else is a genuine error — surface it without burning the chain.
+      throw new Error(`Gemini error ${res.status}${detail ? `: ${detail}` : ''}`);
+    }
+
+    throw new Error(`No Gemini model could be reached${lastDetail ? `: ${lastDetail}` : ''}.`);
   }
 
   // ─────────────────────────────────────────────
@@ -586,6 +677,18 @@
       const icon = document.createElement('i');
       icon.className = 'fas fa-triangle-exclamation';
       const body = document.createElement('span');
+      body.textContent = ` ${text}`;
+      row.append(icon, body);
+    });
+  }
+
+  // Muted informational line — reuses the small tool-receipt styling.
+  function logNote(text) {
+    appendEntry('agent-tool', row => {
+      const icon = document.createElement('i');
+      icon.className = 'fas fa-circle-info';
+      const body = document.createElement('span');
+      body.className = 'agent-tool-summary';
       body.textContent = ` ${text}`;
       row.append(icon, body);
     });
@@ -718,6 +821,7 @@
   function setCredentials(key, model) {
     GEMINI_KEY = key || '';
     GEMINI_MODEL = model || DEFAULT_MODEL;
+    resolvedModel = null; // re-probe the chain with the new key/model
     localStorage.setItem('geminiKey', GEMINI_KEY);
     localStorage.setItem('geminiModel', GEMINI_MODEL);
   }

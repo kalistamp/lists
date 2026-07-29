@@ -7,11 +7,22 @@ let GIST_ID = localStorage.getItem('gistId') || "";
 const form = document.getElementById('form');
 const textInput = document.getElementById('text');
 const typeInput = document.getElementById('type');
+const urgencyInput = document.getElementById('urgency');
+const dueDateInput = document.getElementById('due-date');
+const dueTimeInput = document.getElementById('due-time');
 const durationInput = document.getElementById('duration');
 const notesArea = document.getElementById('notes-area');
 
 // Fallback estimates (minutes) when a chore has no durationMin yet.
 const DEFAULT_DURATION = { daily: 30, errands: 45, oneoff: 60 };
+
+// Urgency ladder. Order matters: index doubles as the priority score.
+const URGENCY_LEVELS = ['low', 'medium', 'high', 'urgent'];
+const DEFAULT_URGENCY = 'medium';
+const urgencyRank = (u) => {
+    const i = URGENCY_LEVELS.indexOf(u);
+    return i === -1 ? URGENCY_LEVELS.indexOf(DEFAULT_URGENCY) : i;
+};
 
 const lists = {
     daily: document.getElementById('list-daily'),
@@ -204,6 +215,39 @@ function effectiveDuration(chore) {
     return chore.durationMin || DEFAULT_DURATION[chore.type] || 30;
 }
 
+// A chore's due moment as an epoch ms, or null if it has no due date.
+// A date with no time is treated as end-of-day so it isn't "overdue" all day.
+function dueTimestamp(chore) {
+    if (!chore.dueDate) return null;
+    const time = chore.dueTime || '23:59';
+    const ts = new Date(`${chore.dueDate}T${time}`).getTime();
+    return Number.isFinite(ts) ? ts : null;
+}
+
+// Short human due label + overdue flag for rendering, e.g. { label: "Due Aug 3", overdue: true }
+function dueMeta(chore) {
+    const ts = dueTimestamp(chore);
+    if (ts === null) return null;
+    const d = new Date(ts);
+    const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    const label = chore.dueTime ? `${dateStr}, ${formatTime(chore.dueTime)}` : dateStr;
+    return { label, overdue: ts < Date.now() };
+}
+
+// Colour-coded urgency chip. Rendered on every chore so the priority is explicit.
+function urgencyTagHTML(chore) {
+    const u = URGENCY_LEVELS.includes(chore.urgency) ? chore.urgency : DEFAULT_URGENCY;
+    const label = u.charAt(0).toUpperCase() + u.slice(1);
+    return `<span class="urgency-tag urgency-${u}">${label}</span>`;
+}
+
+// Due-date chip, styled red once the deadline has passed.
+function dueTagHTML(chore) {
+    const meta = dueMeta(chore);
+    if (!meta) return '';
+    return `<span class="due-tag${meta.overdue ? ' overdue' : ''}"><i class="fas fa-flag"></i> ${meta.overdue ? 'Overdue' : 'Due'} ${meta.label}</span>`;
+}
+
 // ─────────────────────────────────────────────
 // DAILY PLAN RENDERING — includes Feature 2 (inline completion) & Feature 3 (time blocks)
 // ─────────────────────────────────────────────
@@ -300,7 +344,7 @@ function updateDailyPlan() {
                     ${checkIcon}
                 </div>
                 <span class="plan-num">${String(idx + 1).padStart(2, '0')}.</span>
-                <div class="plan-text">${c.text}</div>
+                <div class="plan-text">${c.text} ${urgencyTagHTML(c)}${dueTagHTML(c)}</div>
                 <span onclick="openTimeBlockModal(${id})">${blockIcon}</span>
                 <i class="fas fa-trash plan-trash" onclick="deleteChore(${id})"></i>
             `;
@@ -461,10 +505,20 @@ function updateUI() {
 
     ['daily', 'errands', 'oneoff'].forEach(type => {
         const group = chores.filter(c => c.type === type);
-        // Starred first, then incomplete, completed sink to bottom
+        // Completed sink to bottom, then starred, then by urgency, then soonest due
         group.sort((a, b) => {
             if (a.completed !== b.completed) return a.completed ? 1 : -1;
-            return (b.starred ? 1 : 0) - (a.starred ? 1 : 0);
+            if (!!a.starred !== !!b.starred) return a.starred ? -1 : 1;
+            const byUrgency = urgencyRank(b.urgency) - urgencyRank(a.urgency);
+            if (byUrgency !== 0) return byUrgency;
+            const ad = dueTimestamp(a);
+            const bd = dueTimestamp(b);
+            if (ad !== bd) {
+                if (ad === null) return 1;
+                if (bd === null) return -1;
+                return ad - bd;
+            }
+            return 0;
         });
         group.forEach(c => {
             const isQueued = dailyPlan.includes(c.id);
@@ -495,7 +549,9 @@ function updateUI() {
                 <div class="custom-check"></div>
                 <div class="chore-text">
                     ${c.text}
+                    ${urgencyTagHTML(c)}
                     ${c.durationMin ? `<span class="dur-tag">${formatDuration(c.durationMin)}</span>` : ''}
+                    ${dueTagHTML(c)}
                 </div>
                 <div class="swipe-actions" id="swipe-actions-${c.id}">
                     <button class="swipe-btn swipe-edit" onclick="editChore(${c.id})"><i class="fas fa-edit"></i></button>
@@ -551,17 +607,24 @@ form.addEventListener('submit', (e) => {
     const rawDuration = parseInt(durationInput.value, 10);
     const durationMin = Number.isFinite(rawDuration) && rawDuration > 0 ? rawDuration : undefined;
 
+    const urgency = URGENCY_LEVELS.includes(urgencyInput.value) ? urgencyInput.value : DEFAULT_URGENCY;
+    const dueDate = dueDateInput.value || undefined;
+    const dueTime = dueTimeInput.value || undefined;
+
     if (editState.isEditing) {
-        chores = chores.map(c => c.id === editState.id ? { ...c, text: choreText, type: typeInput.value, durationMin } : c);
+        chores = chores.map(c => c.id === editState.id ? { ...c, text: choreText, type: typeInput.value, urgency, dueDate, dueTime, durationMin } : c);
         editState = { isEditing: false, id: null };
         document.getElementById('form-title').innerText = 'Add task';
         document.getElementById('submit-btn').innerText = 'Add chore';
     } else {
-        chores.push({ text: choreText, type: typeInput.value, completed: false, starred: false, durationMin, id: Date.now() });
+        chores.push({ text: choreText, type: typeInput.value, urgency, dueDate, dueTime, completed: false, starred: false, durationMin, id: Date.now() });
     }
 
     textInput.value = '';
     durationInput.value = '';
+    urgencyInput.value = DEFAULT_URGENCY;
+    dueDateInput.value = '';
+    dueTimeInput.value = '';
     saveAndSync();
 });
 
@@ -582,6 +645,9 @@ window.editChore = (id) => {
     const c = chores.find(chore => chore.id === id);
     textInput.value = c.text;
     typeInput.value = c.type;
+    urgencyInput.value = c.urgency || DEFAULT_URGENCY;
+    dueDateInput.value = c.dueDate || '';
+    dueTimeInput.value = c.dueTime || '';
     durationInput.value = c.durationMin || '';
     editState = { isEditing: true, id };
     document.getElementById('form-title').innerText = 'Edit task';

@@ -164,6 +164,7 @@ label {
 input[type="text"],
 input[type="password"],
 input[type="time"],
+input[type="date"],
 select,
 textarea {
   width: 100%;
@@ -198,10 +199,22 @@ textarea:focus {
   box-shadow: 0 0 0 3px var(--clay-wash);
 }
 
-input[type="time"]::-webkit-calendar-picker-indicator {
+input[type="time"]::-webkit-calendar-picker-indicator,
+input[type="date"]::-webkit-calendar-picker-indicator {
   filter: none;
   opacity: 0.55;
   cursor: pointer;
+}
+
+/* Due date + time sit side by side, wrapping on very narrow screens */
+.due-inputs {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.due-inputs input {
+  flex: 1 1 130px;
+  min-width: 0;
 }
 
 /* ---------- Buttons ---------- */
@@ -571,11 +584,16 @@ li.completed .custom-check {
 
 .agent-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  /* minmax(0, 1fr) lets columns shrink below the intrinsic width of a time
+     input or select, which is what was pushing the right column off-screen on
+     narrow phones. */
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
   margin-bottom: 18px;
 }
-.agent-grid .form-control { margin-bottom: 0; }
+.agent-grid .form-control { margin-bottom: 0; min-width: 0; }
+.agent-grid .form-control input,
+.agent-grid .form-control select { max-width: 100%; }
 
 .label-optional {
   font-weight: 500;
@@ -697,6 +715,42 @@ input[type="number"]:focus {
   vertical-align: middle;
   white-space: nowrap;
 }
+
+/* Urgency chip — colour tracks the priority ladder so it reads at a glance */
+.urgency-tag {
+  display: inline-block;
+  margin-left: 8px;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: var(--r-pill);
+  vertical-align: middle;
+  white-space: nowrap;
+}
+.urgency-low    { color: var(--ink-faint); background: var(--bg-tint); }
+.urgency-medium { color: var(--ink-soft);  background: var(--bg-tint); }
+.urgency-high   { color: #fff8f2; background: var(--errands); }
+.urgency-urgent { color: #fff; background: var(--danger); }
+
+/* Due-date chip — turns red once the deadline is past */
+.due-tag {
+  display: inline-block;
+  margin-left: 8px;
+  font-size: 0.66rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--ink-soft);
+  background: var(--bg-tint);
+  padding: 2px 8px;
+  border-radius: var(--r-pill);
+  vertical-align: middle;
+  white-space: nowrap;
+}
+.due-tag i { font-size: 0.58rem; margin-right: 2px; opacity: 0.75; }
+.due-tag.overdue { color: #fff; background: var(--danger); }
+.due-tag.overdue i { opacity: 0.9; }
 
 /* Settings modal additions */
 .settings-divider {
@@ -845,8 +899,11 @@ input[type="number"]:focus {
   .agent-log { max-height: 320px; }
 }
 
-@media (max-width: 380px) {
+/* Stack the planner controls into one column before they get cramped, so the
+   "Wind down by" / "Day fullness" pair on the right can never overlap or clip. */
+@media (max-width: 460px) {
   .agent-grid { grid-template-columns: 1fr; }
+  .due-inputs input { flex-basis: 100%; }
 }
 
 /* ---------- A11y / polish ---------- */
