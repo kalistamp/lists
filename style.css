@@ -946,7 +946,23 @@ li.completed .custom-check {
 }
 .assistant-module .list-header h3 i { color: var(--clay); font-size: 0.95rem; }
 
-#agent-status { color: var(--clay-deep); font-weight: 600; }
+/* Planner status: "Thinking…" during a run, otherwise a standing record of the
+   model that actually drafted the plan. It can hold a name as long as
+   "gemini-flash-lite-latest", so it must be allowed to shrink and wrap rather
+   than push the header wider than the card. */
+#agent-status {
+  color: var(--clay-deep);
+  font-weight: 600;
+  min-width: 0;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+#agent-status.model-tag {
+  background: var(--clay-wash);
+  padding: 3px 9px;
+  border-radius: var(--r-pill);
+  letter-spacing: 0.02em;
+}
 
 .agent-grid {
   display: grid;

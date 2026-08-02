@@ -22,6 +22,13 @@
   let resolvedModel = null;
   let running = false;
 
+  // Display-only record of the model that actually produced the last draft.
+  // Deliberately separate from `resolvedModel`, which drives request routing:
+  // that one stays session-only so a model that was merely busy last time is
+  // still retried first on the next load. This one persists, so the label keeps
+  // describing the plan sitting in the list after a page reload.
+  let lastDraftModel = localStorage.getItem('lastPlannerModel') || '';
+
   // ─────────────────────────────────────────────
   // TOOL DECLARATIONS
   // ─────────────────────────────────────────────
@@ -492,6 +499,16 @@
     return false;
   }
 
+  // Transient server-side failures. 503 ("the model is overloaded") is by far
+  // the common one, and it says nothing about whether the model is usable — so
+  // it must not abort the run. It previously fell through to the generic throw
+  // in attemptModel, which killed the whole chain before a single fallback
+  // model got a turn: the exact reason a 503 left the planner stuck.
+  function isOverloadedError(status, detail) {
+    if (status === 503 || status === 500) return true;
+    return /overloaded|try again later|temporarily unavailable/i.test(detail || '');
+  }
+
   async function requestModel(model, contents, systemPrompt) {
     const url = `${API_BASE}/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(GEMINI_KEY)}`;
     return fetch(url, {
@@ -534,7 +551,8 @@
     if (res.status === 400 && /API key/i.test(detail)) {
       throw new Error('Gemini rejected the API key. Check it in Settings.');
     }
-    if (isModelAvailabilityError(res.status, detail)) return { unavailable: true, detail };
+    if (isModelAvailabilityError(res.status, detail)) return { skip: 'unavailable', status: res.status, detail };
+    if (isOverloadedError(res.status, detail)) return { skip: 'overloaded', status: res.status, detail };
     throw new Error(`Gemini error ${res.status}${detail ? `: ${detail}` : ''}`);
   }
 
@@ -565,6 +583,17 @@
 
   async function callGemini(contents, systemPrompt) {
     const tried = [];
+    const failures = [];
+
+    // Every model answered, but only to say it was busy. That is a transient
+    // outage, not a misconfiguration — the message must not send the user off
+    // to "fix" a Settings value that was never wrong.
+    const allBusy = () => failures.length > 0 && failures.every(f => f.skip === 'overloaded');
+    const busyError = () => new Error(
+      `Every Gemini model tried is overloaded right now (${failures.map(f => f.model).join(', ')}). ` +
+      'That is temporary and nothing is wrong with your key or settings — wait a moment and ' +
+      'press “Plan my day” again. Your chores and today\'s plan were left untouched.'
+    );
 
     const runChain = async (models) => {
       for (const model of models) {
@@ -576,7 +605,13 @@
             if (tried.length > 1) logNote(`Using Gemini model “${model}”.`);
             resolvedModel = model;
           }
+          noteDraftModel(model);
           return r.candidate;
+        }
+        failures.push({ model, skip: r.skip, status: r.status });
+        // Say so out loud: a silent fallback is what made a 503 confusing.
+        if (r.skip === 'overloaded') {
+          logNote(`“${model}” is overloaded (HTTP ${r.status}) — trying the next model.`);
         }
       }
       return null;
@@ -591,6 +626,10 @@
     let c = await runChain(modelCandidates());
     if (c) return c;
 
+    // Skip the ListModels sweep when everything was merely busy: the models it
+    // returns would be just as overloaded, so it is a wasted round trip.
+    if (allBusy()) throw busyError();
+
     const disc = await discoverModels();
     if (!disc.ok) {
       if (disc.status === 400 && /API key/i.test(disc.detail)) {
@@ -601,6 +640,8 @@
     if (disc.models.length) logNote(`Configured models unavailable — checking ${disc.models.length} model(s) your key supports.`);
     c = await runChain(disc.models);
     if (c) return c;
+
+    if (allBusy()) throw busyError();
 
     throw new Error(
       `No available Gemini model. Tried ${tried.join(', ') || '(none)'}. ` +
@@ -783,11 +824,40 @@
     return c ? c.text : `#${choreId}`;
   }
 
+  // Record which model actually produced a draft, and surface it. Without this
+  // the only trace was a logNote that fired solely on a fallback and vanished
+  // with "Clear log" — so on a normal run you could never tell what drafted it.
+  function noteDraftModel(model) {
+    lastDraftModel = model;
+    localStorage.setItem('lastPlannerModel', model);
+    renderStatus();
+  }
+
+  // #agent-status shows "Thinking…" mid-run and otherwise holds the model label.
+  function renderStatus() {
+    const el = document.getElementById('agent-status');
+    if (!el) return;
+    if (running) {
+      el.textContent = 'Thinking…';
+      el.classList.remove('model-tag');
+      el.removeAttribute('title');
+      return;
+    }
+    if (lastDraftModel) {
+      el.textContent = `via ${lastDraftModel}`;
+      el.classList.add('model-tag');
+      el.title = `Last draft was generated by Gemini model “${lastDraftModel}”.`;
+    } else {
+      el.textContent = '';
+      el.classList.remove('model-tag');
+      el.removeAttribute('title');
+    }
+  }
+
   function setBusy(busy) {
-    const status = document.getElementById('agent-status');
     const planBtn = document.getElementById('agent-plan-btn');
     const askBtn = document.getElementById('agent-ask-btn');
-    if (status) status.textContent = busy ? 'Thinking…' : '';
+    renderStatus();   // reads `running`, which runAgent updates before calling
     [planBtn, askBtn].forEach(b => { if (b) b.disabled = busy; });
     if (planBtn) {
       planBtn.innerHTML = busy
@@ -827,6 +897,8 @@
     const wake = document.getElementById('agent-wake-time');
     if (wake && !wake.value) wake.value = currentTimeHHMM();
 
+    renderStatus();   // restore the model label after a reload
+
     const planBtn = document.getElementById('agent-plan-btn');
     const askBtn = document.getElementById('agent-ask-btn');
     const prompt = document.getElementById('agent-prompt');
@@ -862,7 +934,8 @@
     init,
     setCredentials,
     run: runAgent,
-    getModel: () => GEMINI_MODEL,
+    getModel: () => GEMINI_MODEL,          // what is configured
+    getDraftModel: () => lastDraftModel,   // what actually produced the last draft
     getKey: () => GEMINI_KEY,
     defaultModel: DEFAULT_MODEL
   };
