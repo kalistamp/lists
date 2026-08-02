@@ -37,6 +37,11 @@
   --danger:  #b1472f;         /* warm brick  */
   --success: #6f8a4f;         /* olive       */
 
+  /* Text drawn ON an accent fill (primary buttons, urgency chips, swipe
+     actions). It has to be a token, not a literal white: in dark mode the
+     accents themselves become light, so this flips to a dark ink. */
+  --on-accent: #fff8f2;
+
   /* Depth */
   --shadow-sm: 0 1px 2px rgba(56,49,42,0.05), 0 2px 8px rgba(56,49,42,0.045);
   --shadow-md: 0 4px 20px rgba(56,49,42,0.08);
@@ -55,6 +60,110 @@
   /* Motion */
   --ease: cubic-bezier(0.22, 1, 0.36, 1);
   --dur:  340ms;
+
+  /* Render native widgets (date/time pickers, select popups, scrollbars)
+     to match the theme. */
+  color-scheme: light;
+}
+
+/* ============================================================
+   DARK MODE — the same clay palette re-pitched for a dark room.
+   Surfaces drop to a warm brown-black, the ink inverts, and the
+   accents are LIGHTENED: a #bf5b3d terracotta that reads well on
+   oat paper is far too dark to sit on a near-black card. This is
+   almost entirely token overrides, so the rest of the sheet is
+   untouched and stays the single source of layout truth.
+
+   The class lives on <html>, not <body>, so the inline script in
+   index.html can set it before the first paint — putting it on
+   <body> would flash a full white page on every load.
+   ============================================================ */
+:root.theme-dark {
+  /* Surfaces */
+  --bg:            #1c1815;
+  --bg-tint:       #262019;
+  --surface:       #24201c;
+  --surface-raised:#2e2823;
+
+  /* Accent (clay) — lifted for contrast against dark surfaces. Note that
+     --clay-deep is now BRIGHTER than --clay: "deep" marks the hover /
+     emphasis end of the ramp, and on dark, emphasis means more light. */
+  --clay:      #e08762;
+  --clay-deep: #f2a183;
+  --clay-soft: #5e3a2a;
+  --clay-wash: rgba(224, 135, 98, 0.14);
+
+  /* Ink */
+  --ink:       #f2e9dd;
+  --ink-soft:  #c2b6a6;
+  --ink-faint: #8d8274;
+
+  /* Structure */
+  --line:        #3b342c;
+  --line-strong: #4e463b;
+
+  /* Category earths */
+  --daily:   #e08762;
+  --errands: #e0ab52;
+  --oneoff:  #9cb887;
+
+  /* Semantic */
+  --danger:  #e5735c;
+  --success: #a0be74;
+  --on-accent: #2a1a12;
+
+  /* Depth — warm-grey shadows are invisible on a dark ground, so these
+     go near-black and a little heavier to keep cards separated. */
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.34), 0 2px 8px rgba(0,0,0,0.26);
+  --shadow-md: 0 4px 20px rgba(0,0,0,0.40);
+  --shadow-lg: 0 14px 44px rgba(0,0,0,0.55);
+
+  color-scheme: dark;
+}
+
+/* The few places that hardcode a light colour instead of reading a token —
+   gradients and a data-URI SVG — have to be restated by hand. */
+:root.theme-dark body.theme-clay {
+  background:
+    radial-gradient(1200px 600px at 100% -10%, #2b2420 0%, transparent 60%),
+    var(--bg);
+}
+:root.theme-dark .daily-plan-module {
+  background: linear-gradient(180deg, #322b25 0%, var(--surface-raised) 100%);
+}
+:root.theme-dark .assistant-module {
+  background: linear-gradient(180deg, var(--surface) 0%, #2b2520 100%);
+}
+:root.theme-dark #login-overlay {
+  background:
+    radial-gradient(900px 500px at 50% -10%, #2b2520 0%, transparent 60%),
+    var(--bg);
+}
+:root.theme-dark .modal-overlay { background: rgba(0, 0, 0, 0.62); }
+
+/* These tints are baked as literal rgba() mixed from the LIGHT accents, so on a
+   dark ground they fade to nothing. Restated with the dark accents at a higher
+   alpha so the category stripe and the delete-hover cue stay legible. */
+:root.theme-dark li.priority-daily   { box-shadow: var(--shadow-sm), inset 3px 0 0 rgba(224,135,98,0.45); }
+:root.theme-dark li.priority-errands { box-shadow: var(--shadow-sm), inset 3px 0 0 rgba(224,171,82,0.45); }
+:root.theme-dark li.priority-oneoff  { box-shadow: var(--shadow-sm), inset 3px 0 0 rgba(156,184,135,0.45); }
+:root.theme-dark .chore-delete-btn:hover {
+  background: rgba(229, 115, 92, 0.16);
+  border-color: rgba(229, 115, 92, 0.42);
+}
+:root.theme-dark .plan-trash:hover { background: rgba(229, 115, 92, 0.16); }
+
+/* The select chevron is a data-URI SVG, so its stroke can't inherit a token. */
+:root.theme-dark select {
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M2 4l4 4 4-4' fill='none' stroke='%23e08762' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+
+/* Native picker glyphs are drawn dark; invert so they stay visible. */
+:root.theme-dark input[type="time"]::-webkit-calendar-picker-indicator,
+:root.theme-dark input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(1);
+  opacity: 0.7;
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -328,7 +437,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 .btn-primary {
   width: 100%;
   background: var(--clay);
-  color: #fff8f2;
+  color: var(--on-accent);
   box-shadow: var(--shadow-sm);
 }
 .btn-primary:hover {
@@ -357,7 +466,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 .btn-danger {
   flex: 1;
   background: var(--danger);
-  color: #fff;
+  color: var(--on-accent);
   border-color: var(--danger);
 }
 .btn-danger:hover { filter: brightness(0.94); }
@@ -522,7 +631,7 @@ li.completed .custom-check {
   border: none;
   cursor: pointer;
   font-size: 1rem;
-  color: #fff;
+  color: var(--on-accent);
 }
 .swipe-edit   { background: var(--clay); }
 .swipe-delete { background: var(--danger); }
@@ -616,6 +725,51 @@ li.completed .custom-check {
   padding: 4px 10px;
   border-radius: var(--r-pill);
 }
+
+/* Right-hand cluster in the plan header: the count pill + the Clear button.
+   Kept from shrinking so the title wraps instead of the controls squeezing. */
+.plan-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+/* Compact, unobtrusive "Clear" control. Deliberately NOT a .btn — the global
+   .btn / .btn-ghost rules stretch to full width on mobile, which would blow up
+   the header. Reddens on hover to signal it wipes the plan (tasks are kept). */
+.plan-clear-btn {
+  font-family: var(--font-body);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--line);
+  background: var(--surface-raised);
+  color: var(--ink-soft);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color var(--dur) var(--ease),
+              background var(--dur) var(--ease),
+              border-color var(--dur) var(--ease);
+}
+.plan-clear-btn:hover {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+.plan-clear-btn:active { transform: translateY(1px); }
+.plan-clear-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.plan-clear-btn:disabled:hover {
+  border-color: var(--line);
+  color: var(--ink-soft);
+}
 .plan-empty-msg {
   font-family: var(--font-body);
   font-size: 0.9rem;
@@ -651,7 +805,7 @@ li.completed .custom-check {
   flex-shrink: 0;
   display: flex; align-items: center; justify-content: center;
   cursor: pointer;
-  color: #fff;
+  color: var(--on-accent);
   font-size: 0.6rem;
   transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease);
 }
@@ -980,8 +1134,8 @@ input[type="number"]:focus {
 }
 .urgency-low    { color: var(--ink-faint); background: var(--bg-tint); }
 .urgency-medium { color: var(--ink-soft);  background: var(--bg-tint); }
-.urgency-high   { color: #fff8f2; background: var(--errands); }
-.urgency-urgent { color: #fff; background: var(--danger); }
+.urgency-high   { color: var(--on-accent); background: var(--errands); }
+.urgency-urgent { color: var(--on-accent); background: var(--danger); }
 
 /* Due-date chip — turns red once the deadline is past */
 .due-tag {
@@ -998,7 +1152,7 @@ input[type="number"]:focus {
   white-space: nowrap;
 }
 .due-tag i { font-size: 0.58rem; margin-right: 2px; opacity: 0.75; }
-.due-tag.overdue { color: #fff; background: var(--danger); }
+.due-tag.overdue { color: var(--on-accent); background: var(--danger); }
 .due-tag.overdue i { opacity: 0.9; }
 
 /* Settings modal additions */

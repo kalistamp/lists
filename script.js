@@ -163,6 +163,55 @@ const checkPwd = () => {
 document.getElementById('login-btn').addEventListener('click', checkPwd);
 document.getElementById('password-input').addEventListener('keydown', e => { if (e.key === 'Enter') checkPwd(); });
 
+// DARK MODE
+// The inline <head> script already applied the theme before first paint; this
+// section owns the toggle, the persisted choice, and keeping the button in sync.
+// Both target the class on <html>, so there is only ever one source of truth.
+const THEME_KEY = 'theme';
+
+function isDarkTheme() {
+    return document.documentElement.classList.contains('theme-dark');
+}
+
+// The button is labelled with the ACTION, not the current state: while you are
+// in light mode it offers "Dark". aria-pressed still reports the state.
+function syncThemeButton() {
+    const dark = isDarkTheme();
+    const btn = document.getElementById('theme-toggle-btn');
+    const icon = document.getElementById('theme-toggle-icon');
+    const label = document.getElementById('theme-toggle-label');
+    if (icon) icon.className = dark ? 'fas fa-sun' : 'fas fa-moon';
+    if (label) label.innerText = dark ? 'Light' : 'Dark';
+    if (btn) {
+        btn.setAttribute('aria-pressed', dark ? 'true' : 'false');
+        btn.title = dark ? 'Switch to light mode' : 'Switch to dark mode';
+    }
+}
+
+function applyTheme(dark) {
+    document.documentElement.classList.toggle('theme-dark', dark);
+    syncThemeButton();
+}
+
+window.toggleTheme = () => {
+    const dark = !isDarkTheme();
+    applyTheme(dark);
+    localStorage.setItem(THEME_KEY, dark ? 'dark' : 'light');
+};
+
+// Track the OS setting, but only until the user picks a side themselves — once
+// `theme` is stored, an explicit choice outranks the system preference.
+if (window.matchMedia) {
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    const onSystemChange = (e) => {
+        if (!localStorage.getItem(THEME_KEY)) applyTheme(e.matches);
+    };
+    if (mq.addEventListener) mq.addEventListener('change', onSystemChange);
+    else if (mq.addListener) mq.addListener(onSystemChange);   // older Safari
+}
+
+syncThemeButton();
+
 // MODAL CONTROLS
 window.openSettings = () => {
     document.getElementById('github-token-input').value = GITHUB_TOKEN;
@@ -194,13 +243,16 @@ document.getElementById('save-settings-btn').addEventListener('click', () => {
     if (GITHUB_TOKEN && GIST_ID) window.manualSync();
 });
 
-// DELETE CONFIRMATION MODAL
-function confirmDelete(choreName) {
+// GENERIC CONFIRMATION MODAL
+// Resolves true on confirm, false on cancel. The yes/no buttons are cloned each
+// call so listeners from a prior call never stack up; their labels and classes
+// are set explicitly every time so one caller's choices never leak into the
+// next (a plain "Clear" must not inherit the delete flow's red "Delete" label).
+function confirmAction({ title, message, confirmLabel = 'Confirm', cancelLabel = 'Cancel', confirmClass = 'btn-danger' }) {
     return new Promise((resolve) => {
         const modal = document.getElementById('confirm-modal');
-        document.getElementById('confirm-title').innerText = 'Delete this chore?';
-        document.getElementById('confirm-message').innerText =
-            `"${choreName}" will be removed for good.`;
+        document.getElementById('confirm-title').innerText = title;
+        document.getElementById('confirm-message').innerText = message;
         modal.style.display = 'flex';
 
         const yesBtn = document.getElementById('confirm-yes-btn');
@@ -208,6 +260,10 @@ function confirmDelete(choreName) {
 
         const freshYes = yesBtn.cloneNode(true);
         const freshNo = noBtn.cloneNode(true);
+        freshYes.className = `btn ${confirmClass}`;
+        freshYes.innerText = confirmLabel;
+        freshNo.className = 'btn btn-ghost';
+        freshNo.innerText = cancelLabel;
         yesBtn.parentNode.replaceChild(freshYes, yesBtn);
         noBtn.parentNode.replaceChild(freshNo, noBtn);
 
@@ -220,6 +276,17 @@ function confirmDelete(choreName) {
             modal.style.display = 'none';
             resolve(false);
         }, { once: true });
+    });
+}
+
+// DELETE CONFIRMATION MODAL
+function confirmDelete(choreName) {
+    return confirmAction({
+        title: 'Delete this chore?',
+        message: `"${choreName}" will be removed for good.`,
+        confirmLabel: 'Delete',
+        cancelLabel: 'Keep it',
+        confirmClass: 'btn-danger'
     });
 }
 
@@ -333,6 +400,10 @@ function updateDailyPlan() {
     dailyPlan = dailyPlan.filter(id => chores.find(c => c.id === id));
     planContainer.innerHTML = '';
 
+    // Nothing to clear when the plan is empty — grey the button out.
+    const clearBtn = document.getElementById('clear-plan-btn');
+    if (clearBtn) clearBtn.disabled = dailyPlan.length === 0;
+
     if (dailyPlan.length === 0) {
         emptyMsg.style.display = 'block';
         countTag.innerText = 'No tasks';
@@ -422,6 +493,33 @@ function persistPlanOrder() {
     saveToGist();
     updateDailyPlan();
 }
+
+// CLEAR TODAY'S PLAN — wipe the generated plan view without touching task data.
+// Empties dailyPlan and its time blocks and un-stars every chore. The un-star is
+// essential, not incidental: `starred` is the source of truth the midnight reset
+// and "Reset daily" rebuild the plan from, so leaving stars set would resurrect
+// the plan we just cleared. No chore is deleted — text, category, urgency, due
+// date, duration and completion all stay put in the main lists.
+window.clearDailyPlan = async () => {
+    if (dailyPlan.length === 0 && !chores.some(c => c.starred)) return;
+
+    const confirmed = await confirmAction({
+        title: "Clear Today's plan?",
+        message: "This empties Today's plan and its time blocks. Your tasks stay in their lists — nothing is deleted.",
+        confirmLabel: 'Clear plan',
+        cancelLabel: 'Cancel',
+        confirmClass: 'btn-danger'
+    });
+    if (!confirmed) return;
+
+    dailyPlan = [];
+    timeBlocks = {};
+    chores = chores.map(c => c.starred ? { ...c, starred: false } : c);
+
+    savePlan();
+    saveTimeBlocks();
+    saveAndSync();   // persists chores, re-renders every list, syncs to the gist
+};
 
 // SWIPE LEFT TO REVEAL EDIT / DELETE (MOBILE)
 let activeSwipeEl = null;
