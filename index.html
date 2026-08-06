@@ -21,7 +21,7 @@
             } catch (e) {}
         })();
     </script>
-    <link rel="stylesheet" href="./style.css?v=18">
+    <link rel="stylesheet" href="./style.css?v=19">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -314,20 +314,23 @@
                 <p id="plan-empty" class="plan-empty-msg">Nothing planned yet — star or add a chore below to include it here.</p>
             </section>
 
+            <!-- Reading order here is deliberately the opposite of the Add task
+                 dropdown's. Daily is the short, recurring list you scan first;
+                 the Docket is the long one you work down. In the form the order
+                 is reversed so the common choice is preselected and needs no
+                 scrolling. The id stays "oneoff": it is the value written into
+                 every saved chore and into the synced gist, and renaming it
+                 would strand chores on any device running an older cached
+                 script. -->
             <div class="vertical-lists">
-                <!-- Docket first — it holds most of the list, so it should not
-                     sit below the short recurring one. The id stays "oneoff":
-                     it is the value written into every saved chore and into the
-                     synced gist, and renaming it would strand chores on any
-                     device still running an older cached script. -->
-                <section id="section-oneoff" class="list-module">
-                    <div class="list-header"><h3>Docket</h3></div>
-                    <ul id="list-oneoff" class="chore-list"></ul>
-                </section>
-
                 <section id="section-daily" class="list-module">
                     <div class="list-header"><h3>Daily</h3></div>
                     <ul id="list-daily" class="chore-list"></ul>
+                </section>
+
+                <section id="section-oneoff" class="list-module">
+                    <div class="list-header"><h3>Docket</h3></div>
+                    <ul id="list-oneoff" class="chore-list"></ul>
                 </section>
             </div>
 
@@ -340,8 +343,8 @@
         </main>
     </div>
 
-    <script src="./scheduler.js?v=18"></script>
-    <script src="./script.js?v=18"></script>
-    <script src="./agent.js?v=18"></script>
+    <script src="./scheduler.js?v=19"></script>
+    <script src="./script.js?v=19"></script>
+    <script src="./agent.js?v=19"></script>
 </body>
 </html>
