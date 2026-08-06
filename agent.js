@@ -683,6 +683,82 @@
     input_schema: toJsonSchema(f.parameters) || EMPTY_SCHEMA
   }));
 
+  // /v1/responses declares tools flat rather than nested under `function`, and
+  // strict is opt-out: leaving it on would require every property to be listed
+  // in `required`, which these schemas deliberately don't do — most arguments
+  // are optional.
+  const responsesTools = () => functionDeclarations.map(f => ({
+    type: 'function',
+    name: f.name,
+    description: f.description,
+    parameters: toJsonSchema(f.parameters) || EMPTY_SCHEMA,
+    strict: false
+  }));
+
+  const textOfContent = (content) => {
+    if (typeof content === 'string') return content;
+    if (!Array.isArray(content)) return '';
+    return content.map(c => (c && (c.text || c.output_text)) || '').join('');
+  };
+
+  // The two OpenAI endpoints disagree on how a transcript is shaped, and which
+  // one a model needs isn't known until it refuses — so a conversation has to
+  // be convertible after it has already started.
+  function chatToResponsesItems(items) {
+    const out = [];
+    (items || []).forEach(m => {
+      if (!m) return;
+      if (m.role === 'tool') {
+        out.push({ type: 'function_call_output', call_id: m.tool_call_id, output: m.content });
+        return;
+      }
+      if (m.role === 'assistant') {
+        if (m.content) out.push({ role: 'assistant', content: textOfContent(m.content) });
+        (m.tool_calls || []).forEach(tc => out.push({
+          type: 'function_call',
+          call_id: tc.id,
+          name: tc.function && tc.function.name,
+          arguments: (tc.function && tc.function.arguments) || '{}'
+        }));
+        return;
+      }
+      out.push({ role: m.role, content: textOfContent(m.content) });
+    });
+    return out;
+  }
+
+  function responsesToChatItems(items) {
+    const out = [];
+    (items || []).forEach(it => {
+      if (!it) return;
+      if (it.type === 'function_call') {
+        out.push({
+          role: 'assistant',
+          content: null,
+          tool_calls: [{ id: it.call_id, type: 'function', function: { name: it.name, arguments: it.arguments || '{}' } }]
+        });
+        return;
+      }
+      if (it.type === 'function_call_output') {
+        out.push({ role: 'tool', tool_call_id: it.call_id, content: it.output });
+        return;
+      }
+      if (it.role) out.push({ role: it.role, content: textOfContent(it.content) });
+    });
+    return out;
+  }
+
+  const ENDPOINT_MODE_KEY = 'openaiEndpointModes';
+  function loadEndpointModes() {
+    try {
+      const raw = JSON.parse(localStorage.getItem(ENDPOINT_MODE_KEY) || '{}');
+      return raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+    } catch (e) { return {}; }
+  }
+  function saveEndpointModes(modes) {
+    try { localStorage.setItem(ENDPOINT_MODE_KEY, JSON.stringify(modes)); } catch (e) {}
+  }
+
   async function readErrorDetail(res) {
     try {
       const err = await res.json();
@@ -845,25 +921,36 @@
       fallbacks: ['gpt-5.1', 'gpt-5', 'gpt-4.1', 'gpt-4o'],
       keyUrl: 'platform.openai.com/api-keys',
 
-      newConvo: () => [],
-      pushUser(convo, text) { convo.push({ role: 'user', content: text }); },
-      pushAssistant(convo, raw) { convo.push(raw); },
-      pushToolResults(convo, results) {
-        // One message per call, each tagged with the id it answers.
-        results.forEach(r => convo.push({
-          role: 'tool',
-          tool_call_id: r.id,
-          content: JSON.stringify(r.result)
-        }));
+      // The conversation carries its own wire format, because which endpoint a
+      // model needs is not known until it refuses. `items` is either
+      // chat/completions messages or Responses input items; `mode` says which.
+      newConvo: () => ({ mode: 'chat', items: [] }),
+
+      // A bare {role, content} is valid in both formats, so the opening turn
+      // never needs converting.
+      pushUser(convo, text) { convo.items.push({ role: 'user', content: text }); },
+
+      // Responses returns a list of output items; chat returns one message.
+      pushAssistant(convo, raw) {
+        if (Array.isArray(raw)) convo.items.push(...raw);
+        else convo.items.push(raw);
       },
 
+      pushToolResults(convo, results) {
+        results.forEach(r => convo.items.push(convo.mode === 'responses'
+          ? { type: 'function_call_output', call_id: r.id, output: JSON.stringify(r.result) }
+          // chat: one message per call, each tagged with the id it answers
+          : { role: 'tool', tool_call_id: r.id, content: JSON.stringify(r.result) }));
+      },
+
+      // ---- /v1/chat/completions ----
       buildBody(model, convo, systemPrompt, reasoning) {
         // No temperature and no token cap on purpose: the GPT-5 family rejects
         // a non-default temperature on this endpoint and renamed max_tokens to
         // max_completion_tokens, so sending either breaks the newest models.
         const body = {
           model,
-          messages: [{ role: 'system', content: systemPrompt }, ...convo],
+          messages: [{ role: 'system', content: systemPrompt }, ...convo.items],
           tools: openAiTools(),
           tool_choice: 'auto'
         };
@@ -883,44 +970,116 @@
         };
       },
 
-      // Whether a given model wants reasoning_effort:'none' alongside function
-      // tools. gpt-5.6 refuses tools on chat/completions unless reasoning is
-      // explicitly off; older models reject the parameter outright. Neither is
-      // derivable from the id, and hardcoding a family list is exactly the
-      // mistake that hid gpt-5.6-sol from the picker — so it is learned from
-      // the first refusal and remembered for the session.
-      reasoningMode: {},
+      // ---- /v1/responses ----
+      buildResponsesBody(model, convo, systemPrompt) {
+        return {
+          model,
+          instructions: systemPrompt,
+          input: convo.items,
+          tools: responsesTools(),
+          tool_choice: 'auto',
+          // Stateless: the full conversation is re-sent every turn, so nothing
+          // needs retaining server-side — and this keeps the chore list off
+          // OpenAI's storage. The trade is that reasoning items cannot be
+          // replayed by id, so they are dropped in parseResponses and each turn
+          // reasons fresh. Reasoning within a turn, which is the point, is
+          // unaffected. `reasoning` itself is left unset so the model applies
+          // its own default effort.
+          store: false
+        };
+      },
 
-      // Returns the mode to retry with, or null if this isn't that failure.
-      reasoningRetry(mode, status, detail) {
-        if (status !== 400 || !/reasoning[_ ]?effort/i.test(detail || '')) return null;
-        if (mode !== 'none') return 'none';                                  // "set reasoning_effort to 'none'"
-        if (/unrecognized|unsupported|unknown|not supported|invalid/i.test(detail)) return 'omit';
+      parseResponses(json) {
+        const out = Array.isArray(json.output) ? json.output : [];
+        const text = out
+          .filter(o => o.type === 'message')
+          .map(o => (o.content || []).filter(c => c.type === 'output_text').map(c => c.text).join(''))
+          .join('')
+          .trim();
+        return {
+          // Only what can be replayed without server-side state.
+          raw: out.filter(o => o.type === 'message' || o.type === 'function_call'),
+          text,
+          calls: out
+            .filter(o => o.type === 'function_call' && o.name)
+            // function_call_output references call_id, not the item id.
+            .map(o => ({ id: o.call_id || o.id, name: o.name, args: parseToolArgs(o.arguments) }))
+        };
+      },
+
+      // ---- endpoint negotiation ----
+      // Which endpoint each model needs, learned from its refusals:
+      //   chat            /v1/chat/completions — fine for everything that isn't
+      //                   a reasoning model refusing tools
+      //   responses       /v1/responses — the only way to have function tools
+      //                   AND reasoning on the newest models (gpt-5.6-sol)
+      //   chat-no-reason  last resort: tools on chat with reasoning switched
+      //                   off, for a key that cannot reach /v1/responses
+      // Cached across reloads so the wasted probe happens once, not per visit.
+      endpointMode: loadEndpointModes(),
+
+      nextMode(mode, status, detail) {
+        const d = detail || '';
+        // "To use function tools, use /v1/responses or set reasoning_effort to 'none'."
+        if (mode === 'chat' && status === 400 && /reasoning[_ ]?effort/i.test(d)) return 'responses';
+        if (mode === 'responses' &&
+            (status === 404 || /not supported|unsupported|unknown|unavailable|does not exist|must be verified/i.test(d))) {
+          return 'chat-no-reason';
+        }
         return null;
       },
 
-      async send(model, convo, systemPrompt, key) {
-        let mode = this.reasoningMode[model] || 'omit';
+      // Rewrite the running conversation into whichever format the next attempt
+      // needs. On the first turn this is a no-op — there is only a user message,
+      // which both formats accept.
+      applyMode(convo, mode) {
+        const want = mode === 'responses' ? 'responses' : 'chat';
+        if (convo.mode === want) return;
+        convo.items = want === 'responses'
+          ? chatToResponsesItems(convo.items)
+          : responsesToChatItems(convo.items);
+        convo.mode = want;
+      },
 
-        for (let attempt = 0; attempt < 2; attempt++) {
-          const res = await fetch(`${this.base}/chat/completions`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
-            body: JSON.stringify(this.buildBody(model, convo, systemPrompt, mode))
-          });
+      request(model, convo, systemPrompt, key, mode) {
+        const headers = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` };
+        return mode === 'responses'
+          ? fetch(`${this.base}/responses`, {
+              method: 'POST', headers,
+              body: JSON.stringify(this.buildResponsesBody(model, convo, systemPrompt))
+            })
+          : fetch(`${this.base}/chat/completions`, {
+              method: 'POST', headers,
+              body: JSON.stringify(this.buildBody(model, convo, systemPrompt, mode === 'chat-no-reason' ? 'none' : 'omit'))
+            });
+      },
+
+      async send(model, convo, systemPrompt, key) {
+        let mode = this.endpointMode[model] || 'chat';
+
+        for (let attempt = 0; attempt < 3; attempt++) {
+          this.applyMode(convo, mode);
+          const res = await this.request(model, convo, systemPrompt, key, mode);
+
           if (res.ok) {
-            this.reasoningMode[model] = mode;
-            return this.parse(await res.json());
+            if (this.endpointMode[model] !== mode) {
+              this.endpointMode[model] = mode;
+              saveEndpointModes(this.endpointMode);
+            }
+            const json = await res.json();
+            return mode === 'responses' ? this.parseResponses(json) : this.parse(json);
           }
 
           const detail = await readErrorDetail(res);
-          const retry = attempt === 0 ? this.reasoningRetry(mode, res.status, detail) : null;
-          if (!retry) return classifyHttpError(this.label, res.status, detail);
+          const next = this.nextMode(mode, res.status, detail);
+          if (!next) return classifyHttpError(this.label, res.status, detail);
 
-          logNote(`“${model}” needs reasoning ${retry === 'none' ? 'turned off' : 'left unset'} to use tools — retrying.`);
-          mode = retry;
+          logNote(next === 'responses'
+            ? `“${model}” needs the Responses API to use tools while reasoning — switching to it.`
+            : `“${model}” could not use the Responses API — falling back with reasoning off.`);
+          mode = next;
         }
-        return classifyHttpError(this.label, 400, 'reasoning_effort negotiation failed');
+        return classifyHttpError(this.label, 400, 'no usable OpenAI endpoint for this model');
       },
 
       async discover(key) {
@@ -1600,7 +1759,8 @@
     _internals: {
       PROVIDERS, toJsonSchema, classifyHttpError, rankBy, parseToolArgs,
       functionDeclarations, buildSystemPrompt, readDayControls,
-      getTranscript: () => transcript.slice(), pushEntry, choreAgeDays
+      getTranscript: () => transcript.slice(), pushEntry, choreAgeDays,
+      chatToResponsesItems, responsesToChatItems
     }
   };
 })();
