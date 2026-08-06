@@ -1207,6 +1207,19 @@ input[type="number"]:focus {
 .urgency-high   { color: var(--on-accent); background: var(--errands); }
 .urgency-urgent { color: var(--on-accent); background: var(--danger); }
 
+/* The planner's own read, not the user's setting. Outlined rather than filled
+   so the difference is legible at a glance and never mistaken for a value they
+   chose — the reasoning is in the title attribute. */
+.urgency-inferred {
+  background: transparent;
+  border: 1px dashed currentColor;
+  padding: 1px 7px;
+  cursor: help;
+}
+.urgency-inferred.urgency-high   { color: var(--errands); }
+.urgency-inferred.urgency-urgent { color: var(--danger); }
+.urgency-inferred i { font-size: 0.85em; margin-right: 3px; opacity: 0.8; }
+
 /* Due-date chip — turns red once the deadline is past */
 .due-tag {
   display: inline-block;

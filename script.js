@@ -512,11 +512,34 @@ function dueMeta(chore) {
     return { label, overdue: ts < Date.now() };
 }
 
-// Colour-coded urgency chip.
+// Model-written text goes through here before it can reach innerHTML.
+const escapeHTML = (s) => String(s).replace(/[&<>"']/g, ch =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+
+const storedUrgency = (chore) =>
+    URGENCY_LEVELS.includes(chore.urgency) ? chore.urgency : DEFAULT_URGENCY;
+
+// The planner may record its own read of how pressing a task is. That stays in
+// a separate field and is strictly advisory: it applies only where the user
+// left the default, so anything they set themselves always wins.
+function effectiveUrgency(chore) {
+    const own = storedUrgency(chore);
+    if (own !== DEFAULT_URGENCY) return own;
+    return URGENCY_LEVELS.includes(chore.inferredUrgency) ? chore.inferredUrgency : own;
+}
+
+const isInferred = (chore) => effectiveUrgency(chore) !== storedUrgency(chore);
+
+// Colour-coded urgency chip. An inferred level is marked so the two are never
+// confused — it carries a sparkle and the reasoning sits in the tooltip.
 function urgencyTagHTML(chore) {
-    const u = URGENCY_LEVELS.includes(chore.urgency) ? chore.urgency : DEFAULT_URGENCY;
+    const u = effectiveUrgency(chore);
     const label = u.charAt(0).toUpperCase() + u.slice(1);
-    return `<span class="urgency-tag urgency-${u}">${label}</span>`;
+    if (!isInferred(chore)) return `<span class="urgency-tag urgency-${u}">${label}</span>`;
+
+    const why = chore.inferredReason ? `${chore.inferredReason} — ` : '';
+    const title = escapeHTML(`Planner's read: ${why}you left this at ${storedUrgency(chore)}. Set urgency yourself to override.`);
+    return `<span class="urgency-tag urgency-${u} urgency-inferred" title="${title}"><i class="fas fa-wand-magic-sparkles"></i> ${label}</span>`;
 }
 
 // Due-date chip
@@ -596,7 +619,7 @@ function updateDailyPlan() {
                 ${checkIcon}
             </div>
             <span class="plan-num">${String(idx + 1).padStart(2, '0')}.</span>
-            <div class="plan-text">${c.text} ${urgencyTagHTML(c)}${dueTagHTML(c)}</div>
+            <div class="plan-text">${escapeHTML(c.text)} ${urgencyTagHTML(c)}${dueTagHTML(c)}</div>
             <div class="plan-actions">
                 <span class="plan-reorder">
                     <button class="plan-arrow" onclick="movePlanItem(${id}, -1)" title="Move up" ${idx === 0 ? 'disabled' : ''}><i class="fas fa-chevron-up"></i></button>
@@ -841,7 +864,7 @@ function updateUI() {
         group.sort((a, b) => {
             if (a.completed !== b.completed) return a.completed ? 1 : -1;
             if (!!a.starred !== !!b.starred) return a.starred ? -1 : 1;
-            const byUrgency = urgencyRank(b.urgency) - urgencyRank(a.urgency);
+            const byUrgency = urgencyRank(effectiveUrgency(b)) - urgencyRank(effectiveUrgency(a));
             if (byUrgency !== 0) return byUrgency;
             const ad = dueTimestamp(a);
             const bd = dueTimestamp(b);
@@ -882,7 +905,7 @@ function updateUI() {
                 </button>
                 <div class="custom-check"></div>
                 <div class="chore-text">
-                    ${c.text}
+                    ${escapeHTML(c.text)}
                     ${urgencyTagHTML(c)}
                     ${c.durationMin ? `<span class="dur-tag">${formatDuration(c.durationMin)}</span>` : ''}
                     ${dueTagHTML(c)}
@@ -951,7 +974,13 @@ form.addEventListener('submit', (e) => {
             urgency,
             dueDate,
             dueTime,
-            durationMin
+            durationMin,
+            // Editing is an explicit act of attention: whatever urgency you just
+            // confirmed stands, so the planner's guess is dropped rather than
+            // left to reassert itself if you set the level back to Medium.
+            inferredUrgency: undefined,
+            inferredReason: undefined,
+            inferredAt: undefined
         } : c);
 
         editState = { isEditing: false, id: null };

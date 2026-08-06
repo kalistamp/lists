@@ -96,6 +96,29 @@
       }
     },
     {
+      name: 'set_inferred_priority',
+      description: "Record your own read of how pressing chores are, judged from what the tasks actually involve. This is advisory: it never overwrites the user's own urgency setting, it is shown alongside it in the list, and it only affects ordering where they left the default in place. Assess everything worth assessing in ONE batched call rather than calling this repeatedly.",
+      parameters: {
+        type: 'OBJECT',
+        properties: {
+          assessments: {
+            type: 'ARRAY',
+            description: 'One entry per chore you have formed a view on.',
+            items: {
+              type: 'OBJECT',
+              properties: {
+                chore_id: { type: 'NUMBER' },
+                level: { type: 'STRING', enum: URGENCIES, description: 'How pressing this genuinely is, on the same ladder as the urgency field.' },
+                reason: { type: 'STRING', description: 'One short clause naming the consequence of leaving it — not a restatement of the task. e.g. "late fee after the 8th", "water damage if it keeps dripping".' }
+              },
+              required: ['chore_id', 'level', 'reason']
+            }
+          }
+        },
+        required: ['assessments']
+      }
+    },
+    {
       name: 'set_chore_completed',
       description: 'Mark a chore done or not done.',
       parameters: {
@@ -245,6 +268,11 @@
     // the same default urgency.
     const age = choreAgeDays(c);
     if (age !== null) out.age_days = age;
+    // A previous run's judgement, so it isn't re-derived from scratch each time.
+    if (URGENCIES.includes(c.inferredUrgency)) {
+      out.inferred_urgency = c.inferredUrgency;
+      if (c.inferredReason) out.inferred_reason = c.inferredReason;
+    }
     if (c.dueDate) {
       out.due_date = c.dueDate;
       if (c.dueTime) out.due_time = c.dueTime;
@@ -323,6 +351,39 @@
       });
       App().setChores(next);
       return Object.keys(changed).length ? { updated: id, changed } : { updated: id, changed: null, note: 'nothing to change' };
+    },
+
+    set_inferred_priority(args) {
+      const list = Array.isArray(args.assessments) ? args.assessments : [];
+      if (!list.length) return { error: 'assessments is required and must not be empty' };
+
+      const chores = App().getChores();
+      const applied = [];
+      const next = chores.map(c => {
+        const a = list.find(x => Number(x && x.chore_id) === c.id);
+        if (!a || !URGENCIES.includes(a.level)) return c;
+        applied.push({ chore_id: c.id, text: c.text, level: a.level });
+        return {
+          ...c,
+          // Deliberately a separate field. Writing to `urgency` would destroy
+          // the user's own answer with a guess, and there would be no way to
+          // tell afterwards which of the two you were looking at.
+          inferredUrgency: a.level,
+          inferredReason: String(a.reason || '').trim().slice(0, 160),
+          inferredAt: Date.now()
+        };
+      });
+
+      const unknown = list
+        .map(a => Number(a && a.chore_id))
+        .filter(id => !chores.some(c => c.id === id));
+
+      App().setChores(next);
+      return {
+        assessed: applied,
+        unknown_chore_ids: unknown.length ? unknown : undefined,
+        note: "Advisory only — the user's own urgency values are unchanged."
+      };
     },
 
     set_chore_completed(args) {
@@ -532,12 +593,23 @@
       '',
       'WHEN URGENCY IS UNINFORMATIVE',
       '"medium" is what the form starts on, so a list where nearly everything sits at medium usually means the field was never touched — not that every task is genuinely equal. Check for this: if roughly three quarters or more of the incomplete chores share a single level, treat urgency as unset for ordering and rank on the signals that were NOT defaulted:',
-      '  1. an explicit due date — soonest first;',
-      '  2. starred, because that was a real choice;',
-      '  3. age_days — something added weeks ago and still open is either quietly overdue or wants deleting, and either way it is worth surfacing;',
-      '  4. a short duration that clears a nagging item quickly;',
-      '  5. errands that group into one outing.',
-      'When you fall back like this, add ONE short line at the end saying the urgency field is doing no work and that starring two or three tasks, or giving them due dates, would let you order the day the way they actually mean. Say it once, plainly, without lecturing, and drop it from later answers unless the user asks.',
+      '  1. your own judgement of how pressing the task is — see below; this is the strongest signal you have;',
+      '  2. an explicit due date — soonest first;',
+      '  3. starred, because that was a real choice;',
+      '  4. age_days — something added weeks ago and still open is either quietly overdue or wants deleting, and either way it is worth surfacing;',
+      '  5. a short duration that clears a nagging item quickly;',
+      '  6. errands that group into one outing.',
+      '',
+      'JUDGING PRIORITY YOURSELF',
+      'You know what these tasks actually involve. The urgency field frequently records only that the user did not stop to think about it, so where it is uninformative, form your own view and act on it rather than treating the list as flat. Judge each chore on what it IS:',
+      '  • what actually happens if it slips another week — a fine, a lapsed policy, a missed appointment, a health or safety consequence, or genuinely nothing;',
+      '  • whether waiting makes it worse or more expensive: leaks, warning lights, damp, anything perishable, anything with a queue that grows;',
+      '  • whether another person is blocked or waiting on it, or it holds up a second task;',
+      '  • whether it carries a deadline the user never wrote down — renewals, registrations, prescriptions, returns windows, tickets, tax and seasonal cut-offs;',
+      '  • whether it is simply optional and would just be pleasant to have done.',
+      'Do not read urgency off the wording. A task written in a panic is not urgent because of its phrasing, and a flatly-worded "renew passport" may be the most pressing thing on the list.',
+      'Record your conclusions with set_inferred_priority — one batched call — so they persist, appear next to the task in the list, and do not have to be re-derived next time. Chores that already carry inferred_urgency have been assessed; leave them alone unless the text changed or you now disagree, and if you disagree, say so briefly.',
+      'This is advisory. It never overwrites what the user set, and it decides ordering only where they left the default in place. When you have leant on it, say in one short line that you judged the ordering yourself and that setting urgency or a due date on the two or three that matter most would override you. Say it once, plainly, without lecturing, and drop it from later answers unless asked.',
       '',
       'HOW TO BUILD A DAY',
       'When asked to plan the day, you will be told a wake-up or start time. Then:',
@@ -1228,6 +1300,11 @@
         return '→ schedule cleared';
       case 'append_note':
         return '→ note added';
+      case 'set_inferred_priority': {
+        const n = result.assessed.length;
+        const levels = result.assessed.filter(a => a.level === 'urgent' || a.level === 'high');
+        return `→ judged ${n} task${n === 1 ? '' : 's'}${levels.length ? `, ${levels.length} above medium` : ''}`;
+      }
       case 'build_day_schedule': {
         const n = result.scheduled.length;
         const left = result.not_scheduled.length;
