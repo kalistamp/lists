@@ -21,7 +21,7 @@
             } catch (e) {}
         })();
     </script>
-    <link rel="stylesheet" href="./style.css?v=17">
+    <link rel="stylesheet" href="./style.css?v=18">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -187,10 +187,12 @@
                     </div>
                     <div class="form-control">
                         <label>Category</label>
+                        <!-- Docket leads and is preselected: most tasks are
+                             one-time, so defaulting to Daily meant scrolling
+                             past it on nearly every add. -->
                         <select id="type">
+                            <option value="oneoff" selected>Docket</option>
                             <option value="daily">Daily</option>
-                            <option value="errands">Errands &amp; shopping</option>
-                            <option value="oneoff">One-off</option>
                         </select>
                     </div>
                     <div class="form-control">
@@ -313,19 +315,19 @@
             </section>
 
             <div class="vertical-lists">
+                <!-- Docket first — it holds most of the list, so it should not
+                     sit below the short recurring one. The id stays "oneoff":
+                     it is the value written into every saved chore and into the
+                     synced gist, and renaming it would strand chores on any
+                     device still running an older cached script. -->
+                <section id="section-oneoff" class="list-module">
+                    <div class="list-header"><h3>Docket</h3></div>
+                    <ul id="list-oneoff" class="chore-list"></ul>
+                </section>
+
                 <section id="section-daily" class="list-module">
                     <div class="list-header"><h3>Daily</h3></div>
                     <ul id="list-daily" class="chore-list"></ul>
-                </section>
-
-                <section id="section-errands" class="list-module">
-                    <div class="list-header"><h3>Errands &amp; shopping</h3></div>
-                    <ul id="list-errands" class="chore-list"></ul>
-                </section>
-
-                <section id="section-oneoff" class="list-module">
-                    <div class="list-header"><h3>One-off</h3></div>
-                    <ul id="list-oneoff" class="chore-list"></ul>
                 </section>
             </div>
 
@@ -338,8 +340,8 @@
         </main>
     </div>
 
-    <script src="./scheduler.js?v=17"></script>
-    <script src="./script.js?v=17"></script>
-    <script src="./agent.js?v=17"></script>
+    <script src="./scheduler.js?v=18"></script>
+    <script src="./script.js?v=18"></script>
+    <script src="./agent.js?v=18"></script>
 </body>
 </html>

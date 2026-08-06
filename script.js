@@ -14,7 +14,20 @@ const durationInput = document.getElementById('duration');
 const notesArea = document.getElementById('notes-area');
 
 // Fallback estimates (minutes) when a chore has no durationMin yet.
-const DEFAULT_DURATION = { daily: 30, errands: 45, oneoff: 60 };
+const DEFAULT_DURATION = { daily: 30, oneoff: 60 };
+
+// The two categories a chore can be in. "errands" was retired, but chores saved
+// under it still arrive — from this browser's own storage, from the gist, and
+// from other devices — and an unrecognised type has no list to render into, so
+// it would disappear from the UI while sitting safely in the data. Everything
+// unknown is folded into the docket instead.
+// The stored value stays "oneoff" even though it now reads as "Docket": it is
+// written into every chore and synced to the gist, so renaming it would strand
+// chores on any device still running an older cached script.
+const CATEGORIES = ['daily', 'oneoff'];
+const DEFAULT_CATEGORY = 'oneoff';
+const migrateCategories = (list) => (Array.isArray(list) ? list : [])
+    .map(c => (c && CATEGORIES.includes(c.type) ? c : { ...c, type: DEFAULT_CATEGORY }));
 
 // Urgency ladder. Order matters: index doubles as the priority score.
 const URGENCY_LEVELS = ['low', 'medium', 'high', 'urgent'];
@@ -26,7 +39,6 @@ const urgencyRank = (u) => {
 
 const lists = {
     daily: document.getElementById('list-daily'),
-    errands: document.getElementById('list-errands'),
     oneoff: document.getElementById('list-oneoff')
 };
 
@@ -40,7 +52,7 @@ let timeBlocks = {};
 // INITIAL LOAD
 try {
     const stored = localStorage.getItem('choreData');
-    if (stored) chores = JSON.parse(stored);
+    if (stored) chores = migrateCategories(JSON.parse(stored));
 } catch (e) { chores = []; }
 
 try {
@@ -859,7 +871,7 @@ function attachPlanDrag(li, id) {
 function updateUI() {
     Object.values(lists).forEach(l => { if (l) l.innerHTML = ''; });
 
-    ['daily', 'errands', 'oneoff'].forEach(type => {
+    CATEGORIES.forEach(type => {
         const group = chores.filter(c => c.type === type);
         group.sort((a, b) => {
             if (a.completed !== b.completed) return a.completed ? 1 : -1;
@@ -1109,7 +1121,9 @@ window.manualSync = async () => {
         });
         const json = await res.json();
         const data = JSON.parse(json.files[GIST_FILENAME].content);
-        chores = data.chores || [];
+        // The gist can still hold chores written by a device that predates the
+        // retirement of "errands", so fold them in on the way through.
+        chores = migrateCategories(data.chores);
         notesArea.innerText = data.notes || "";
         if (Array.isArray(data.dailyPlan)) {
             dailyPlan = data.dailyPlan;
@@ -1141,7 +1155,9 @@ window.ChoresApp = {
     getNotes: () => notesArea.innerText,
 
     setChores(next) {
-        chores = next;
+        // Normalised here too: this is the agent's write path, and a chore with
+        // a category no list renders would vanish from the UI.
+        chores = migrateCategories(next);
         localStorage.setItem('choreData', JSON.stringify(chores));
     },
     setPlan(next) {

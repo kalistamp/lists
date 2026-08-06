@@ -18,7 +18,10 @@
   // falling back to the built-in chain. Without a cap, a provider-wide outage
   // would try every model the key can see, one request each.
   const AUTO_TRY_LIMIT = 5;
-  const CATEGORIES = ['daily', 'errands', 'oneoff'];
+  // "errands" was retired. The stored value stays "oneoff" while the UI calls
+  // it the Docket, because it is written into every chore and synced to the
+  // gist — see the same note in script.js.
+  const CATEGORIES = ['daily', 'oneoff'];
   const URGENCIES = ['low', 'medium', 'high', 'urgent'];
 
   const PROVIDER_IDS = ['gemini', 'openai', 'anthropic'];
@@ -68,7 +71,7 @@
         type: 'OBJECT',
         properties: {
           text: { type: 'STRING', description: 'What needs doing, phrased as a short task.' },
-          category: { type: 'STRING', enum: CATEGORIES, description: 'daily = recurring habit, errands = shopping/out-of-house, oneoff = single task.' },
+          category: { type: 'STRING', enum: CATEGORIES, description: 'oneoff = anything done once, including errands and shopping; the user sees this list as "Docket" and it is where nearly everything belongs. daily = a recurring habit. Default to oneoff unless it genuinely repeats every day.' },
           urgency: { type: 'STRING', enum: URGENCIES, description: 'How pressing the task is. Defaults to medium. Use high/urgent for things that must happen today or have a near deadline.' },
           due_date: { type: 'STRING', description: 'Optional deadline date as "YYYY-MM-DD".' },
           due_time: { type: 'STRING', description: 'Optional deadline time as 24-hour "HH:MM". Only meaningful with due_date.' },
@@ -595,7 +598,7 @@
       '  • medium (score 2): normal. Fill the middle of the day with these.',
       '  • low    (score 1): nice-to-have. Schedule late, and these are the first to drop when trimming to fit.',
       'Due dates override the stored level upward, never downward. Using today’s date and time given above: a chore due today or already past due counts as at least high; a chore due within the next hour, or already overdue, counts as urgent. A chore is never demoted below its stored urgency because of its due date.',
-      'Break ties in this order: higher urgency score first, then nearer due date/time, then starred, then time-sensitive errands, then one-offs.',
+      'Break ties in this order: higher urgency score first, then nearer due date/time, then starred, then anything time-sensitive such as an errand with opening hours, then the rest.',
       'When the load cap forces you to leave chores out, drop strictly from the bottom of the ladder up. Never leave an urgent or overdue task unscheduled while a lower-scored one is placed.',
       '',
       'WHEN URGENCY IS UNINFORMATIVE',
@@ -605,7 +608,7 @@
       '  3. starred, because that was a real choice;',
       '  4. age_days — something added weeks ago and still open is either quietly overdue or wants deleting, and either way it is worth surfacing;',
       '  5. a short duration that clears a nagging item quickly;',
-      '  6. errands that group into one outing.',
+      '  6. out-of-house tasks that group into one outing.',
       '',
       'JUDGING PRIORITY YOURSELF',
       'You know what these tasks actually involve. The urgency field frequently records only that the user did not stop to think about it, so where it is uninformative, form your own view and act on it rather than treating the list as flat. Judge each chore on what it IS:',
@@ -622,7 +625,7 @@
       'When asked to plan the day, you will be told a wake-up or start time. Then:',
       '1. Score every incomplete non-daily chore with the urgency ladder above, adjusting for due dates. Sort by that score, breaking ties as described. Urgent and overdue tasks go into the earliest slots.',
       '2. Choose a BALANCED SUBSET that fits comfortably in the waking hours — not everything on the list. A day that feels achievable beats a day that is technically full.',
-      '3. Order them sensibly within the priority scoring: place higher-urgency and time-critical work in the earlier, protected slots; group errands into one outing so travel is shared; keep quiet or low-effort, low-urgency tasks for later in the day.',
+      '3. Order them sensibly within the priority scoring: place higher-urgency and time-critical work in the earlier, protected slots; put shopping and other out-of-house tasks next to each other so one trip covers them; keep quiet or low-effort, low-urgency tasks for later in the day.',
       '4. Estimate a realistic duration for anything without one, and round to something human (15, 30, 45, 60 minutes). Err generous.',
       '5. Call build_day_schedule with the ordered list. It does the clock maths, inserts the cushions and enforces the limits. Never compute times yourself.',
       '6. Read what it returns. Report the schedule chronologically with exact start and end times, then say plainly what you left out and why — naming the urgency of anything you dropped.',

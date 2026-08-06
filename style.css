@@ -28,9 +28,9 @@
   --line:        #e3d8c4;
   --line-strong: #d3c6ac;
 
-  /* Category earths */
+  /* Category + accent earths */
   --daily:   #bf5b3d;         /* terracotta  */
-  --errands: #c98a2e;         /* ochre       */
+  --ochre: #c98a2e;         /* ochre       */
   --oneoff:  #7c9268;         /* sage        */
 
   /* Semantic */
@@ -102,9 +102,9 @@
   --line:        #3b342c;
   --line-strong: #4e463b;
 
-  /* Category earths */
+  /* Category + accent earths */
   --daily:   #e08762;
-  --errands: #e0ab52;
+  --ochre: #e0ab52;
   --oneoff:  #9cb887;
 
   /* Semantic */
@@ -145,7 +145,6 @@
    dark ground they fade to nothing. Restated with the dark accents at a higher
    alpha so the category stripe and the delete-hover cue stay legible. */
 :root.theme-dark li.priority-daily   { box-shadow: var(--shadow-sm), inset 3px 0 0 rgba(224,135,98,0.45); }
-:root.theme-dark li.priority-errands { box-shadow: var(--shadow-sm), inset 3px 0 0 rgba(224,171,82,0.45); }
 :root.theme-dark li.priority-oneoff  { box-shadow: var(--shadow-sm), inset 3px 0 0 rgba(156,184,135,0.45); }
 :root.theme-dark .chore-delete-btn:hover {
   background: rgba(229, 115, 92, 0.16);
@@ -546,12 +545,10 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   background: var(--ink-faint);
 }
 li.priority-daily::before   { background: var(--daily); }
-li.priority-errands::before { background: var(--errands); }
 li.priority-oneoff::before  { background: var(--oneoff); }
 
 li.priority-daily   { background: linear-gradient(var(--surface-raised), var(--surface-raised)) padding-box, var(--surface-raised); }
 li.priority-daily   { box-shadow: var(--shadow-sm), inset 3px 0 0 rgba(191,91,61,0.16); }
-li.priority-errands { box-shadow: var(--shadow-sm), inset 3px 0 0 rgba(201,138,46,0.18); }
 li.priority-oneoff  { box-shadow: var(--shadow-sm), inset 3px 0 0 rgba(124,146,104,0.20); }
 
 li.completed {
@@ -606,7 +603,7 @@ li.completed .custom-check {
   transition: color var(--dur) var(--ease), transform 160ms var(--ease);
 }
 .chore-star-btn:hover { color: var(--ochre); transform: scale(1.12); }
-.chore-star-btn.starred { color: var(--errands); }
+.chore-star-btn.starred { color: var(--ochre); }
 
 /* ---------- Swipe actions ---------- */
 .swipe-actions {
@@ -1212,7 +1209,7 @@ input[type="number"]:focus {
 }
 .urgency-low    { color: var(--ink-faint); background: var(--bg-tint); }
 .urgency-medium { color: var(--ink-soft);  background: var(--bg-tint); }
-.urgency-high   { color: var(--on-accent); background: var(--errands); }
+.urgency-high   { color: var(--on-accent); background: var(--ochre); }
 .urgency-urgent { color: var(--on-accent); background: var(--danger); }
 
 /* The planner's own read, not the user's setting. Outlined rather than filled
@@ -1224,7 +1221,7 @@ input[type="number"]:focus {
   padding: 1px 7px;
   cursor: help;
 }
-.urgency-inferred.urgency-high   { color: var(--errands); }
+.urgency-inferred.urgency-high   { color: var(--ochre); }
 .urgency-inferred.urgency-urgent { color: var(--danger); }
 .urgency-inferred i { font-size: 0.85em; margin-right: 3px; opacity: 0.8; }
 
