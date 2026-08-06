@@ -857,16 +857,18 @@
         }));
       },
 
-      buildBody(model, convo, systemPrompt) {
+      buildBody(model, convo, systemPrompt, reasoning) {
         // No temperature and no token cap on purpose: the GPT-5 family rejects
         // a non-default temperature on this endpoint and renamed max_tokens to
         // max_completion_tokens, so sending either breaks the newest models.
-        return {
+        const body = {
           model,
           messages: [{ role: 'system', content: systemPrompt }, ...convo],
           tools: openAiTools(),
           tool_choice: 'auto'
         };
+        if (reasoning === 'none') body.reasoning_effort = 'none';
+        return body;
       },
 
       parse(json) {
@@ -881,14 +883,44 @@
         };
       },
 
+      // Whether a given model wants reasoning_effort:'none' alongside function
+      // tools. gpt-5.6 refuses tools on chat/completions unless reasoning is
+      // explicitly off; older models reject the parameter outright. Neither is
+      // derivable from the id, and hardcoding a family list is exactly the
+      // mistake that hid gpt-5.6-sol from the picker — so it is learned from
+      // the first refusal and remembered for the session.
+      reasoningMode: {},
+
+      // Returns the mode to retry with, or null if this isn't that failure.
+      reasoningRetry(mode, status, detail) {
+        if (status !== 400 || !/reasoning[_ ]?effort/i.test(detail || '')) return null;
+        if (mode !== 'none') return 'none';                                  // "set reasoning_effort to 'none'"
+        if (/unrecognized|unsupported|unknown|not supported|invalid/i.test(detail)) return 'omit';
+        return null;
+      },
+
       async send(model, convo, systemPrompt, key) {
-        const res = await fetch(`${this.base}/chat/completions`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
-          body: JSON.stringify(this.buildBody(model, convo, systemPrompt))
-        });
-        if (!res.ok) return classifyHttpError(this.label, res.status, await readErrorDetail(res));
-        return this.parse(await res.json());
+        let mode = this.reasoningMode[model] || 'omit';
+
+        for (let attempt = 0; attempt < 2; attempt++) {
+          const res = await fetch(`${this.base}/chat/completions`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
+            body: JSON.stringify(this.buildBody(model, convo, systemPrompt, mode))
+          });
+          if (res.ok) {
+            this.reasoningMode[model] = mode;
+            return this.parse(await res.json());
+          }
+
+          const detail = await readErrorDetail(res);
+          const retry = attempt === 0 ? this.reasoningRetry(mode, res.status, detail) : null;
+          if (!retry) return classifyHttpError(this.label, res.status, detail);
+
+          logNote(`“${model}” needs reasoning ${retry === 'none' ? 'turned off' : 'left unset'} to use tools — retrying.`);
+          mode = retry;
+        }
+        return classifyHttpError(this.label, 400, 'reasoning_effort negotiation failed');
       },
 
       async discover(key) {
@@ -899,7 +931,11 @@
         // hid every model whose name didn't follow the old convention, so a new
         // family would never appear in the picker no matter what the key could
         // reach. Anything not obviously a non-chat endpoint is offered.
-        const skip = /embedding|whisper|tts|dall-e|audio|realtime|image|moderation|transcribe|search|instruct|davinci|babbage|ada|curie|similarity|edit/i;
+        // Bare substrings were dangerous: "ada" and "edit" match inside plenty
+        // of plausible new names, and hiding a model that exists is the failure
+        // that started this. Legacy and modality tokens are matched as whole
+        // dash-separated segments instead.
+        const skip = /embedding|whisper|dall-e|moderation|transcribe|realtime|(^|-)(tts|audio|image|video|speech|search|instruct|edit|ada|curie|babbage|davinci|similarity)(-|$)/i;
         const entries = (json.data || [])
           .filter(m => !skip.test(String(m.id)))
           .map(m => ({ id: String(m.id), created: Number(m.created) || 0 }));
