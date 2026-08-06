@@ -14,6 +14,10 @@
   'use strict';
 
   const MAX_STEPS = 8;
+  // How far down the discovered list Auto will walk before giving up on it and
+  // falling back to the built-in chain. Without a cap, a provider-wide outage
+  // would try every model the key can see, one request each.
+  const AUTO_TRY_LIMIT = 5;
   const CATEGORIES = ['daily', 'errands', 'oneoff'];
   const URGENCIES = ['low', 'medium', 'high', 'urgent'];
 
@@ -25,6 +29,7 @@
   // that predate multi-provider support carry over untouched.
   const STORAGE = {
     provider: 'aiProvider',
+    migrated: 'modelPinMigrated',
     gemini: { key: 'geminiKey', model: 'geminiModel' },
     openai: { key: 'openaiKey', model: 'openaiModel' },
     anthropic: { key: 'anthropicKey', model: 'anthropicModel' }
@@ -603,16 +608,23 @@
     throw new Error(`${label} error ${status}${d ? `: ${d}` : ''}`);
   }
 
-  // Sort discovered model ids by a per-provider tuple of tie-breakers; every
-  // entry is "lower is better" so one comparator serves all three.
-  function rankBy(names, keyFn) {
-    return names
-      .map((n, idx) => ({ n, idx, k: keyFn(n) }))
+  // Sort discovered models by a per-provider tuple of tie-breakers; every entry
+  // is "lower is better" so one comparator serves all three. Entries carry the
+  // provider's own metadata ({ id, created }) rather than just a name, because
+  // the release date is the only trustworthy signal for "newest" — an id like
+  // "sol" has no version number to parse, and guessing from the string is what
+  // made the picker rank brand-new models below old ones.
+  function rankBy(entries, keyFn) {
+    return entries
+      .map((e, idx) => {
+        const o = typeof e === 'string' ? { id: e, created: 0 } : e;
+        return { o, idx, k: keyFn(o) };
+      })
       .sort((a, b) => {
         for (let i = 0; i < a.k.length; i++) { if (a.k[i] !== b.k[i]) return a.k[i] - b.k[i]; }
         return a.idx - b.idx;
       })
-      .map(x => x.n);
+      .map(x => x.o.id);
   }
 
   function parseToolArgs(raw) {
@@ -690,13 +702,16 @@
         const res = await fetch(`${this.base}?key=${encodeURIComponent(key)}&pageSize=1000`);
         if (!res.ok) return { ok: false, status: res.status, detail: await readErrorDetail(res) };
         const json = await res.json();
-        const names = (json.models || [])
+        const entries = (json.models || [])
           .filter(m => (m.supportedGenerationMethods || []).includes('generateContent'))
-          .map(m => String(m.name).replace(/^models\//, ''));
-        return { ok: true, models: rankBy(names, this.rankKey) };
+          .map(m => ({ id: String(m.name).replace(/^models\//, ''), created: 0 }));
+        return { ok: true, models: rankBy(entries, this.rankKey) };
       },
 
-      rankKey(n) {
+      // Gemini's ListModels carries no release date, so this stays name-based —
+      // but its "-latest" aliases already track the newest of each family.
+      rankKey(m) {
+        const n = m.id;
         const v = n.match(/gemini-(\d+(?:\.\d+)?)/);
         return [
           /-latest$/.test(n) ? 0 : 1,
@@ -771,17 +786,22 @@
         // family would never appear in the picker no matter what the key could
         // reach. Anything not obviously a non-chat endpoint is offered.
         const skip = /embedding|whisper|tts|dall-e|audio|realtime|image|moderation|transcribe|search|instruct|davinci|babbage|ada|curie|similarity|edit/i;
-        const names = (json.data || []).map(m => String(m.id)).filter(id => !skip.test(id));
-        return { ok: true, models: rankBy(names, this.rankKey) };
+        const entries = (json.data || [])
+          .filter(m => !skip.test(String(m.id)))
+          .map(m => ({ id: String(m.id), created: Number(m.created) || 0 }));
+        return { ok: true, models: rankBy(entries, this.rankKey) };
       },
 
-      rankKey(n) {
-        const v = n.match(/^(?:gpt|o)-?(\d+(?:\.\d+)?)/);
+      // Ordered by the API's own `created` stamp, not by digits in the name.
+      // There is deliberately no preference for the gpt- prefix: ranking known
+      // families first is exactly what would bury a newer model released under
+      // a different name.
+      rankKey(m) {
+        const n = m.id;
         return [
-          /^gpt-/.test(n) ? 0 : 1,
-          /mini|nano/.test(n) ? 1 : 0,
-          /preview|\d{4}-\d{2}-\d{2}/.test(n) ? 1 : 0,   // prefer the rolling alias over dated snapshots
-          -(v ? parseFloat(v[1]) : 0)
+          /mini|nano/.test(n) ? 1 : 0,                    // full-size before cut-down
+          /preview|\d{4}-\d{2}-\d{2}/.test(n) ? 1 : 0,    // rolling alias before a dated snapshot
+          -(m.created || 0)                               // newest first
         ];
       }
     },
@@ -858,19 +878,20 @@
         const json = await res.json();
         // No name filter: this endpoint only lists models the key can actually
         // call, so filtering on /^claude-/ could only ever hide a new family.
-        const names = (json.data || []).map(m => String(m.id));
-        return { ok: true, models: rankBy(names, this.rankKey) };
+        const entries = (json.data || []).map(m => ({
+          id: String(m.id),
+          created: Date.parse(m.created_at || '') || 0
+        }));
+        return { ok: true, models: rankBy(entries, this.rankKey) };
       },
 
-      rankKey(n) {
-        // Newer ids read "claude-sonnet-5"; Claude 3.x read "claude-3-5-sonnet".
-        const v = n.match(/(?:opus|sonnet|haiku)-(\d+)(?:[-.](\d+))?/) ||
-                  n.match(/claude-(\d+)(?:[-.](\d+))?-(?:opus|sonnet|haiku)/);
-        const version = v ? Number(v[1]) + (v[2] ? Number(v[2]) / 10 : 0) : 0;
+      // By release date, same as OpenAI. No family preference: ranking sonnet
+      // above opus above haiku encodes a guess about which is best, and it
+      // would pin the order to families that exist today.
+      rankKey(m) {
         return [
-          /sonnet/.test(n) ? 0 : /opus/.test(n) ? 1 : /haiku/.test(n) ? 2 : 3,
-          /\d{8}$/.test(n) ? 1 : 0,   // prefer the stable alias over a dated snapshot
-          -version
+          /\d{8}$/.test(m.id) ? 1 : 0,   // stable alias before a dated snapshot
+          -(m.created || 0)              // newest first
         ];
       }
     }
@@ -923,20 +944,35 @@
       resolvedModel[p.id] = null;
     }
 
+    let turn;
+
+    // Auto (no pinned model): ask what the key can reach and take the best
+    // ranked. This has to happen BEFORE the built-in chain, or the constants
+    // would win and Auto would never see anything released after this file.
+    if (!model) {
+      const listed = await listModels(p.id, key);
+      if (listed.ok && listed.models.length) {
+        turn = await runChain(listed.models.slice(0, AUTO_TRY_LIMIT));
+        if (turn) return turn;
+        if (allBusy()) throw busyError();
+      }
+    }
+
     const configured = [model, ...p.fallbacks].filter((m, i, a) => m && a.indexOf(m) === i);
-    let turn = await runChain(configured);
+    turn = await runChain(configured);
     if (turn) return turn;
 
     // Skip the model-list sweep when everything was merely busy: the models it
     // returns would be just as overloaded, so it is a wasted round trip.
     if (allBusy()) throw busyError();
 
-    const disc = await p.discover(key);
+    // Cached from the Auto branch above when that ran, so this is usually free.
+    const disc = await listModels(p.id, key);
     if (!disc.ok) {
-      if (disc.status === 401 || /api[ _-]?key/i.test(disc.detail || '')) {
+      if (/rejected/i.test(disc.error || '')) {
         throw new Error(`${p.label} rejected the API key. Check it in Settings.`);
       }
-      throw new Error(`No configured ${p.label} model worked, and the available-model list couldn't be read (HTTP ${disc.status}${disc.detail ? `: ${disc.detail}` : ''}).`);
+      throw new Error(`No configured ${p.label} model worked, and the available-model list couldn't be read (${disc.error}).`);
     }
     if (disc.models.length) logNote(`Configured models unavailable — checking ${disc.models.length} model(s) your key supports.`);
     turn = await runChain(disc.models);
@@ -1222,13 +1258,30 @@
   // ─────────────────────────────────────────────
   // CREDENTIALS
   // ─────────────────────────────────────────────
+  // An earlier version substituted the built-in default whenever the model
+  // field was left blank, so simply pressing Save burned that constant into
+  // storage — recording "I made no choice" as "pin this forever", which then
+  // outranked discovery and froze the planner on whatever was current the day
+  // it was written. Clear those once so they become Auto again. A value that
+  // differs from the default was typed deliberately and is left alone.
+  function migrateLegacyModelPins() {
+    if (localStorage.getItem(STORAGE.migrated)) return;
+    PROVIDER_IDS.forEach(id => {
+      const stored = (localStorage.getItem(STORAGE[id].model) || '').trim();
+      if (stored && stored === PROVIDERS[id].defaultModel) localStorage.removeItem(STORAGE[id].model);
+    });
+    localStorage.setItem(STORAGE.migrated, '1');
+  }
+
   function loadCredentials() {
+    migrateLegacyModelPins();
     const stored = localStorage.getItem(STORAGE.provider);
     activeProvider = PROVIDER_IDS.includes(stored) ? stored : DEFAULT_PROVIDER;
     PROVIDER_IDS.forEach(id => {
       creds[id] = {
         key: localStorage.getItem(STORAGE[id].key) || '',
-        model: localStorage.getItem(STORAGE[id].model) || PROVIDERS[id].defaultModel
+        // "" is Auto: resolved against the live model list at request time.
+        model: (localStorage.getItem(STORAGE[id].model) || '').trim()
       };
       resolvedModel[id] = null;
     });
@@ -1252,7 +1305,9 @@
     PROVIDER_IDS.forEach(id => {
       if (!c[id]) return;
       const key = (c[id].key || '').trim();
-      const model = (c[id].model || '').trim() || PROVIDERS[id].defaultModel;
+      // Blank stays blank — that is Auto. Substituting the default here is what
+      // pinned every install to a constant the first time Save was pressed.
+      const model = (c[id].model || '').trim();
       // A changed model invalidates whichever id last answered for this provider.
       if (creds[id].model !== model || creds[id].key !== key) resolvedModel[id] = null;
       creds[id] = { key, model };

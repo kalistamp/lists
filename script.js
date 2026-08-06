@@ -230,16 +230,20 @@ function syncProviderFields() {
 // one: model families ship and retire on their schedule, not ours, and a baked
 // list goes stale silently. "Custom…" stays available because listing needs a
 // working key, and pinning an id the API doesn't advertise is still legitimate.
+const MODEL_AUTO = '__auto__';
 const MODEL_CUSTOM = '__custom__';
 
 const modelSelect = (id) => document.getElementById(`${id}-model-select`);
 const modelInput  = (id) => document.getElementById(`${id}-model-input`);
 const modelHint   = (id) => document.getElementById(`${id}-model-hint`);
 
-// The id in force: the dropdown, unless Custom… is selected.
+// The id in force: the dropdown, unless Custom… is selected. Auto is stored as
+// an empty string — the agent resolves it against the live list per request, so
+// it keeps tracking the newest model instead of freezing today's answer.
 function chosenModel(id) {
     const sel = modelSelect(id);
     if (!sel) return modelInput(id) ? modelInput(id).value.trim() : '';
+    if (sel.value === MODEL_AUTO) return '';
     return sel.value === MODEL_CUSTOM ? modelInput(id).value.trim() : sel.value;
 }
 
@@ -257,6 +261,15 @@ function renderModelOptions(id, models, current) {
     if (current && !list.includes(current)) list.unshift(current);
 
     sel.innerHTML = '';
+
+    // Auto leads and is the default. Naming what it currently resolves to keeps
+    // it concrete without pinning it.
+    const top = (models || [])[0];
+    const auto = document.createElement('option');
+    auto.value = MODEL_AUTO;
+    auto.textContent = top ? `Auto — newest available (${top})` : 'Auto — newest available';
+    sel.appendChild(auto);
+
     list.forEach(m => {
         const opt = document.createElement('option');
         opt.value = m;
@@ -268,7 +281,7 @@ function renderModelOptions(id, models, current) {
     custom.textContent = 'Custom…';
     sel.appendChild(custom);
 
-    sel.value = current && list.includes(current) ? current : (list[0] || MODEL_CUSTOM);
+    sel.value = current || MODEL_AUTO;
     syncCustomInput(id, false);
 }
 
@@ -289,7 +302,8 @@ async function loadModelsFor(id, force) {
     const res = await window.ChoreAgent.listModels(id, key, { force });
     renderModelOptions(id, res.models, current);
     hint.textContent = res.ok
-        ? `${res.models.length} model${res.models.length === 1 ? '' : 's'} available to this key.`
+        ? `${res.models.length} model${res.models.length === 1 ? '' : 's'} available to this key. ` +
+          'Auto re-checks on every request, so it follows new releases without you changing anything.'
         : `Couldn't list models — ${res.error}. Showing known defaults; pick Custom… to type an id.`;
 }
 
