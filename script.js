@@ -255,16 +255,22 @@ function syncCustomInput(id, focus) {
 
 // `current` is always offered even when the provider didn't list it, so a
 // pinned id is never silently swapped out just because listing failed.
-function renderModelOptions(id, models, current) {
+// `live` says whether `models` actually came back from the provider. Without a
+// key — or after a failed fetch — all we have is the built-in fallback chain,
+// and presenting that as the account's model list is what made the picker
+// announce "newest available (gpt-5.1)" while newer models existed. Those
+// constants are a last-resort request chain, not knowledge about what shipped,
+// so in that state the dropdown offers Auto and Custom… only and claims nothing.
+function renderModelOptions(id, models, current, live) {
     const sel = modelSelect(id);
-    const list = (models || []).slice();
+    const list = live ? (models || []).slice() : [];
     if (current && !list.includes(current)) list.unshift(current);
 
     sel.innerHTML = '';
 
-    // Auto leads and is the default. Naming what it currently resolves to keeps
-    // it concrete without pinning it.
-    const top = (models || [])[0];
+    // Auto leads and is the default. It names what it resolves to only when
+    // that came from the provider.
+    const top = live ? (models || [])[0] : null;
     const auto = document.createElement('option');
     auto.value = MODEL_AUTO;
     auto.textContent = top ? `Auto — newest available (${top})` : 'Auto — newest available';
@@ -293,18 +299,19 @@ async function loadModelsFor(id, force) {
     const current = chosenModel(id) || cfg.model;
 
     if (!key) {
-        renderModelOptions(id, cfg.fallbacks, current);
-        hint.textContent = 'Add a key above, then refresh to list the models it can use.';
+        renderModelOptions(id, [], current, false);
+        hint.textContent = `Add your ${cfg.label} key above and this lists the models that key can actually use. `
+            + 'Until then Auto picks the newest at request time.';
         return;
     }
 
     hint.textContent = 'Reading available models…';
     const res = await window.ChoreAgent.listModels(id, key, { force });
-    renderModelOptions(id, res.models, current);
+    renderModelOptions(id, res.models, current, res.ok);
     hint.textContent = res.ok
         ? `${res.models.length} model${res.models.length === 1 ? '' : 's'} available to this key. ` +
           'Auto re-checks on every request, so it follows new releases without you changing anything.'
-        : `Couldn't list models — ${res.error}. Showing known defaults; pick Custom… to type an id.`;
+        : `Couldn't list models — ${res.error}. Auto will fall back to a built-in chain; pick Custom… to type an id.`;
 }
 
 window.openSettings = () => {
@@ -317,9 +324,10 @@ window.openSettings = () => {
         AI_PROVIDERS.forEach(id => {
             document.getElementById(`${id}-key-input`).value = cfg.providers[id].key;
             modelInput(id).value = cfg.providers[id].model;
-            // Seed from what we already know so the picker is populated on the
-            // first paint; the live list replaces it a moment later.
-            renderModelOptions(id, cfg.providers[id].fallbacks, cfg.providers[id].model);
+            // Auto + any pinned id only; the live list fills in a moment later.
+            // Seeding with the fallback chain here would flash four stale ids
+            // that look like the account's models.
+            renderModelOptions(id, [], cfg.providers[id].model, false);
             modelHint(id).textContent = '';
         });
     }
