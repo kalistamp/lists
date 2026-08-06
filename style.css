@@ -1041,14 +1041,51 @@ input[type="number"]:focus {
 .btn:disabled { opacity: 0.55; cursor: not-allowed; transform: none; }
 .btn:disabled:hover { box-shadow: var(--shadow-sm); }
 
-/* Freeform ask row */
+/* Freeform ask — the primary control of the panel, so it leads and is sized
+   to be typed in rather than tucked under the Plan button. */
 .agent-ask {
   display: flex;
   gap: 10px;
-  margin-top: 12px;
+  margin-bottom: 14px;
 }
-.agent-ask input { flex: 1; min-width: 0; }
-.agent-ask .btn-ghost { flex: 0 0 auto; }
+.agent-ask input {
+  flex: 1;
+  min-width: 0;
+  padding: 15px 16px;
+  font-size: 1rem;
+}
+.agent-ask .btn { flex: 0 0 auto; }
+
+/* Plan my day demoted to the no-typing shortcut. */
+.agent-secondary-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 22px;
+}
+.agent-secondary-row .btn { flex: 0 0 auto; }
+.agent-secondary-hint {
+  font-size: 0.78rem;
+  color: var(--ink-faint);
+  min-width: 0;
+}
+
+.agent-window-label {
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 0.68rem;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  margin-bottom: 10px;
+}
+.agent-window-label span {
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 400;
+  color: var(--ink-faint);
+}
 
 /* ---------- Transcript ---------- */
 .agent-log {
@@ -1068,6 +1105,15 @@ input[type="number"]:focus {
 }
 .agent-entry:first-child { border-top: none; }
 
+/* Speaker on the left, time + model on the right. The meta is what makes a
+   restored transcript readable hours later. */
+.agent-entry-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 4px;
+}
 .agent-entry-label {
   display: block;
   font-size: 0.66rem;
@@ -1075,7 +1121,15 @@ input[type="number"]:focus {
   letter-spacing: 0.13em;
   text-transform: uppercase;
   color: var(--ink-faint);
-  margin-bottom: 4px;
+}
+.agent-entry-meta {
+  font-size: 0.66rem;
+  color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  flex: 0 1 auto;
+  min-width: 0;
+  word-break: break-word;
 }
 
 .agent-user { color: var(--ink-soft); }
@@ -1366,7 +1420,10 @@ input[type="number"]:focus {
   .main-header { flex-direction: column; align-items: flex-start; gap: 4px; }
   .date-module { text-align: left; }
   .agent-ask { flex-direction: column; }
-  .agent-ask .btn-ghost { width: 100%; }
+  .agent-ask .btn { width: 100%; }
+  .agent-secondary-row { flex-direction: column; align-items: stretch; gap: 8px; }
+  .agent-secondary-row .btn { width: 100%; }
+  .agent-secondary-hint { text-align: center; }
   .agent-log { max-height: 320px; }
   /* One full-width column on anything phone-sized. Two columns only ever left
      ~185px per cell, which is the width a native time widget fights hardest —

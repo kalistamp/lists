@@ -240,6 +240,11 @@
       duration_min: c.durationMin || null
     };
     if (!c.durationMin) out.duration_assumed = App().effectiveDuration(c);
+    // Chore ids are creation timestamps (Date.now()), so age costs nothing to
+    // derive — and it is the most useful tiebreak left when every task carries
+    // the same default urgency.
+    const age = choreAgeDays(c);
+    if (age !== null) out.age_days = age;
     if (c.dueDate) {
       out.due_date = c.dueDate;
       if (c.dueTime) out.due_time = c.dueTime;
@@ -251,6 +256,16 @@
 
   function findChore(id) {
     return App().getChores().find(c => c.id === Number(id));
+  }
+
+  // Ids are Date.now() at creation. Anything outside a plausible range isn't a
+  // timestamp (hand-edited data, an imported gist), so report no age at all
+  // rather than a made-up one.
+  const ID_EPOCH_FLOOR = Date.UTC(2020, 0, 1);
+  function choreAgeDays(c) {
+    const id = Number(c && c.id);
+    if (!Number.isFinite(id) || id < ID_EPOCH_FLOOR || id > Date.now()) return null;
+    return Math.floor((Date.now() - id) / 86400000);
   }
 
   const tools = {
@@ -514,6 +529,15 @@
       'Due dates override the stored level upward, never downward. Using today’s date and time given above: a chore due today or already past due counts as at least high; a chore due within the next hour, or already overdue, counts as urgent. A chore is never demoted below its stored urgency because of its due date.',
       'Break ties in this order: higher urgency score first, then nearer due date/time, then starred, then time-sensitive errands, then one-offs.',
       'When the load cap forces you to leave chores out, drop strictly from the bottom of the ladder up. Never leave an urgent or overdue task unscheduled while a lower-scored one is placed.',
+      '',
+      'WHEN URGENCY IS UNINFORMATIVE',
+      '"medium" is what the form starts on, so a list where nearly everything sits at medium usually means the field was never touched — not that every task is genuinely equal. Check for this: if roughly three quarters or more of the incomplete chores share a single level, treat urgency as unset for ordering and rank on the signals that were NOT defaulted:',
+      '  1. an explicit due date — soonest first;',
+      '  2. starred, because that was a real choice;',
+      '  3. age_days — something added weeks ago and still open is either quietly overdue or wants deleting, and either way it is worth surfacing;',
+      '  4. a short duration that clears a nagging item quickly;',
+      '  5. errands that group into one outing.',
+      'When you fall back like this, add ONE short line at the end saying the urgency field is doing no work and that starring two or three tasks, or giving them due dates, would let you order the day the way they actually mean. Say it once, plainly, without lecturing, and drop it from later answers unless the user asks.',
       '',
       'HOW TO BUILD A DAY',
       'When asked to plan the day, you will be told a wake-up or start time. Then:',
@@ -1051,75 +1075,134 @@
     }
   }
 
-  // TRANSCRIPT UI
+  // ─────────────────────────────────────────────
+  // TRANSCRIPT
+  // Entries are held as data and persisted, not just drawn into the DOM. The
+  // log used to be rebuilt empty on every load, so coming back hours later left
+  // no record of what was asked or which model produced the plan sitting in the
+  // list — exactly when that record matters most.
+  // ─────────────────────────────────────────────
+  const TRANSCRIPT_KEY = 'plannerTranscript';
+  const TRANSCRIPT_MAX = 40;
+  const TRANSCRIPT_TEXT_MAX = 4000;
+
+  // Loaded eagerly rather than in restoreTranscript(), so the history exists
+  // even before anything is rendered.
+  let transcript = loadTranscript();
+
+  function loadTranscript() {
+    try {
+      const raw = JSON.parse(localStorage.getItem(TRANSCRIPT_KEY) || '[]');
+      return Array.isArray(raw) ? raw.filter(e => e && typeof e.text === 'string') : [];
+    } catch (e) { return []; }
+  }
+
+  function saveTranscript() {
+    try { localStorage.setItem(TRANSCRIPT_KEY, JSON.stringify(transcript)); } catch (e) {}
+  }
+
   function logEl() { return document.getElementById('agent-log'); }
 
-  function appendEntry(className, build) {
-    const box = logEl();
-    if (!box) return;
-    const row = document.createElement('div');
-    row.className = `agent-entry ${className}`;
-    build(row);
-    box.appendChild(row);
-    box.scrollTop = box.scrollHeight;
+  function pushEntry(entry) {
+    const e = Object.assign({ at: Date.now() }, entry);
+    e.text = String(e.text || '').slice(0, TRANSCRIPT_TEXT_MAX);
+    transcript.push(e);
+    if (transcript.length > TRANSCRIPT_MAX) transcript = transcript.slice(-TRANSCRIPT_MAX);
+    saveTranscript();
+    renderEntry(e);
   }
 
-  function logUser(text) {
-    appendEntry('agent-user', row => {
+  // "2:15 PM" today, "Aug 5, 2:15 PM" once it isn't today any more.
+  function stamp(at) {
+    if (!at) return '';
+    const d = new Date(at);
+    const time = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+    return new Date().toDateString() === d.toDateString()
+      ? time
+      : `${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}, ${time}`;
+  }
+
+  function buildRow(row, e) {
+    if (e.kind === 'user' || e.kind === 'answer') {
+      const head = document.createElement('div');
+      head.className = 'agent-entry-head';
       const label = document.createElement('span');
       label.className = 'agent-entry-label';
-      label.textContent = 'You';
-      const body = document.createElement('div');
-      body.textContent = text;
-      row.append(label, body);
-    });
-  }
+      label.textContent = e.kind === 'user' ? 'You' : 'Planner';
+      const meta = document.createElement('span');
+      meta.className = 'agent-entry-meta';
+      // Naming the model on the answer is what makes an old plan explainable.
+      meta.textContent = [stamp(e.at), e.model ? `via ${e.model}` : ''].filter(Boolean).join(' · ');
+      head.append(label, meta);
 
-  function logAnswer(text) {
-    appendEntry('agent-answer', row => {
-      const label = document.createElement('span');
-      label.className = 'agent-entry-label';
-      label.textContent = 'Planner';
       const body = document.createElement('div');
-      body.className = 'agent-answer-body';
-      body.textContent = text;
-      row.append(label, body);
-    });
-  }
+      if (e.kind === 'answer') body.className = 'agent-answer-body';
+      body.textContent = e.text;
+      row.append(head, body);
+      return;
+    }
 
-  function logError(text) {
-    appendEntry('agent-error', row => {
+    if (e.kind === 'error') {
       const icon = document.createElement('i');
       icon.className = 'fas fa-triangle-exclamation';
       const body = document.createElement('span');
-      body.textContent = ` ${text}`;
+      body.textContent = ` ${e.text}`;
       row.append(icon, body);
-    });
-  }
+      return;
+    }
 
-  function logNote(text) {
-    appendEntry('agent-tool', row => {
-      const icon = document.createElement('i');
-      icon.className = 'fas fa-circle-info';
-      const body = document.createElement('span');
-      body.className = 'agent-tool-summary';
-      body.textContent = ` ${text}`;
-      row.append(icon, body);
-    });
-  }
-
-  function logTool(name, args, result) {
-    appendEntry('agent-tool', row => {
-      const icon = document.createElement('i');
-      icon.className = 'fas fa-gear';
+    // tool / note
+    const icon = document.createElement('i');
+    icon.className = e.kind === 'tool' ? 'fas fa-gear' : 'fas fa-circle-info';
+    row.appendChild(icon);
+    if (e.name) {
       const label = document.createElement('span');
       label.className = 'agent-tool-name';
-      label.textContent = ` ${name}`;
-      const summary = document.createElement('span');
-      summary.className = 'agent-tool-summary';
-      summary.textContent = ` ${summarizeToolResult(name, args, result)}`;
-      row.append(icon, label, summary);
-    });
+      label.textContent = ` ${e.name}`;
+      row.appendChild(label);
+    }
+    const summary = document.createElement('span');
+    summary.className = 'agent-tool-summary';
+    summary.textContent = ` ${e.text}`;
+    row.appendChild(summary);
+  }
+
+  function renderEntry(e) {
+    const box = logEl();
+    if (!box) return;
+    const row = document.createElement('div');
+    row.className = `agent-entry agent-${e.kind === 'note' ? 'tool' : e.kind}`;
+    buildRow(row, e);
+    box.appendChild(row);
+    while (box.children.length > TRANSCRIPT_MAX) box.removeChild(box.firstChild);
+    box.scrollTop = box.scrollHeight;
+  }
+
+  function restoreTranscript() {
+    const box = logEl();
+    if (!box) return;
+    box.innerHTML = '';
+    transcript.forEach(renderEntry);
+  }
+
+  function clearTranscript() {
+    transcript = [];
+    saveTranscript();
+    const box = logEl();
+    if (box) box.innerHTML = '';
+  }
+
+  function logUser(text) { pushEntry({ kind: 'user', text }); }
+  function logError(text) { pushEntry({ kind: 'error', text }); }
+  function logNote(text) { pushEntry({ kind: 'note', text }); }
+  function logTool(name, args, result) {
+    pushEntry({ kind: 'tool', name, text: summarizeToolResult(name, args, result) });
+  }
+
+  // lastDraftModel is set by noteDraftModel the moment a model answers, so by
+  // the time we log the reply it names the model that actually wrote it.
+  function logAnswer(text) {
+    pushEntry({ kind: 'answer', text, model: lastDraftModel || '' });
   }
 
   function summarizeToolResult(name, args, result) {
@@ -1230,7 +1313,8 @@
     const wake = document.getElementById('agent-wake-time');
     if (wake && !wake.value) wake.value = currentTimeHHMM();
 
-    renderStatus();   // restore the model label after a reload
+    renderStatus();        // restore the model label after a reload
+    restoreTranscript();   // and the conversation that produced the current plan
 
     const planBtn = document.getElementById('agent-plan-btn');
     const askBtn = document.getElementById('agent-ask-btn');
@@ -1251,7 +1335,7 @@
     }
     if (clearBtn && !clearBtn.dataset.wired) {
       clearBtn.dataset.wired = '1';
-      clearBtn.addEventListener('click', () => { const b = logEl(); if (b) b.innerHTML = ''; });
+      clearBtn.addEventListener('click', clearTranscript);
     }
   }
 
@@ -1382,6 +1466,10 @@
     getDraftModel: () => lastDraftModel,                // what produced the last draft
     getKey: () => creds[activeProvider].key,
     // Test seam: exposes the pure pieces without needing a network or a DOM.
-    _internals: { PROVIDERS, toJsonSchema, classifyHttpError, rankBy, parseToolArgs, functionDeclarations, buildSystemPrompt, readDayControls }
+    _internals: {
+      PROVIDERS, toJsonSchema, classifyHttpError, rankBy, parseToolArgs,
+      functionDeclarations, buildSystemPrompt, readDayControls,
+      getTranscript: () => transcript.slice(), pushEntry, choreAgeDays
+    }
   };
 })();

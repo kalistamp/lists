@@ -21,7 +21,7 @@
             } catch (e) {}
         })();
     </script>
-    <link rel="stylesheet" href="./style.css?v=14">
+    <link rel="stylesheet" href="./style.css?v=15">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -244,6 +244,27 @@
                     <span id="agent-status" class="mono-label"></span>
                 </div>
 
+                <!-- Ask leads: it is the control that actually gets used. Plan my
+                     day sits below as the no-typing shortcut and runs the same
+                     agent with a canned prompt. -->
+                <div class="agent-ask">
+                    <input type="text" id="agent-prompt" autocomplete="off"
+                           placeholder="Ask anything — “what should I start with?”">
+                    <button class="btn btn-primary" id="agent-ask-btn">
+                        <i class="fas fa-arrow-up"></i> Ask
+                    </button>
+                </div>
+
+                <div class="agent-secondary-row">
+                    <button class="btn btn-ghost" id="agent-plan-btn">
+                        <i class="fas fa-wand-magic-sparkles"></i> Plan my day
+                    </button>
+                    <span class="agent-secondary-hint">…or just build the whole day for me</span>
+                </div>
+
+                <!-- These four are not "Plan my day" settings — they describe the
+                     day itself and are fed to every request, ask included. -->
+                <p class="agent-window-label">Day window <span>— applies to every request</span></p>
                 <div class="agent-grid">
                     <div class="form-control">
                         <label>Starting at</label>
@@ -270,15 +291,6 @@
                             <option value="80">Full</option>
                         </select>
                     </div>
-                </div>
-
-                <button class="btn btn-primary" id="agent-plan-btn">
-                    <i class="fas fa-wand-magic-sparkles"></i> Plan my day
-                </button>
-
-                <div class="agent-ask">
-                    <input type="text" id="agent-prompt" placeholder="or ask — “shift everything an hour later”">
-                    <button class="btn btn-ghost" id="agent-ask-btn">Ask</button>
                 </div>
 
                 <div id="agent-log" class="agent-log"></div>
@@ -327,8 +339,8 @@
         </main>
     </div>
 
-    <script src="./scheduler.js?v=14"></script>
-    <script src="./script.js?v=14"></script>
-    <script src="./agent.js?v=14"></script>
+    <script src="./scheduler.js?v=15"></script>
+    <script src="./script.js?v=15"></script>
+    <script src="./agent.js?v=15"></script>
 </body>
 </html>
