@@ -21,7 +21,7 @@
             } catch (e) {}
         })();
     </script>
-    <link rel="stylesheet" href="./style.css?v=11">
+    <link rel="stylesheet" href="./style.css?v=12">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -68,8 +68,15 @@
                 </div>
                 <div class="field-group">
                     <label>Gemini model</label>
-                    <input type="text" id="gemini-model-input" placeholder="gemini-flash-latest">
-                    <p class="field-hint">Leave blank for the latest Flash. The planner falls back to other current models and, if needed, auto-detects one your key supports.</p>
+                    <div class="model-picker">
+                        <select id="gemini-model-select"></select>
+                        <button type="button" class="btn btn-ghost model-refresh-btn" data-provider="gemini"
+                                title="Re-read the models this key can use">
+                            <i class="fas fa-rotate"></i>
+                        </button>
+                    </div>
+                    <input type="text" id="gemini-model-input" class="model-custom-input" placeholder="gemini-flash-latest" style="display: none;">
+                    <p class="field-hint" id="gemini-model-hint"></p>
                 </div>
             </div>
 
@@ -81,8 +88,15 @@
                 </div>
                 <div class="field-group">
                     <label>OpenAI model</label>
-                    <input type="text" id="openai-model-input" placeholder="gpt-5.1">
-                    <p class="field-hint">Leave blank for the latest GPT-5.1. Falls back through gpt-5, gpt-4.1 and gpt-4o.</p>
+                    <div class="model-picker">
+                        <select id="openai-model-select"></select>
+                        <button type="button" class="btn btn-ghost model-refresh-btn" data-provider="openai"
+                                title="Re-read the models this key can use">
+                            <i class="fas fa-rotate"></i>
+                        </button>
+                    </div>
+                    <input type="text" id="openai-model-input" class="model-custom-input" placeholder="gpt-5.1" style="display: none;">
+                    <p class="field-hint" id="openai-model-hint"></p>
                 </div>
             </div>
 
@@ -94,8 +108,15 @@
                 </div>
                 <div class="field-group">
                     <label>Anthropic model</label>
-                    <input type="text" id="anthropic-model-input" placeholder="claude-sonnet-5">
-                    <p class="field-hint">Leave blank for Sonnet 5. Use <code>claude-opus-5</code> for the most capable option or <code>claude-haiku-4-5-20251001</code> for the cheapest.</p>
+                    <div class="model-picker">
+                        <select id="anthropic-model-select"></select>
+                        <button type="button" class="btn btn-ghost model-refresh-btn" data-provider="anthropic"
+                                title="Re-read the models this key can use">
+                            <i class="fas fa-rotate"></i>
+                        </button>
+                    </div>
+                    <input type="text" id="anthropic-model-input" class="model-custom-input" placeholder="claude-sonnet-5" style="display: none;">
+                    <p class="field-hint" id="anthropic-model-hint"></p>
                 </div>
             </div>
             <div class="modal-actions">
@@ -306,8 +327,8 @@
         </main>
     </div>
 
-    <script src="./scheduler.js?v=11"></script>
-    <script src="./script.js?v=11"></script>
-    <script src="./agent.js?v=11"></script>
+    <script src="./scheduler.js?v=12"></script>
+    <script src="./script.js?v=12"></script>
+    <script src="./agent.js?v=12"></script>
 </body>
 </html>

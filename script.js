@@ -225,6 +225,74 @@ function syncProviderFields() {
     });
 }
 
+// ---------- Model picker ----------
+// The dropdown is filled from the provider's own model list, not a hardcoded
+// one: model families ship and retire on their schedule, not ours, and a baked
+// list goes stale silently. "Custom…" stays available because listing needs a
+// working key, and pinning an id the API doesn't advertise is still legitimate.
+const MODEL_CUSTOM = '__custom__';
+
+const modelSelect = (id) => document.getElementById(`${id}-model-select`);
+const modelInput  = (id) => document.getElementById(`${id}-model-input`);
+const modelHint   = (id) => document.getElementById(`${id}-model-hint`);
+
+// The id in force: the dropdown, unless Custom… is selected.
+function chosenModel(id) {
+    const sel = modelSelect(id);
+    if (!sel) return modelInput(id) ? modelInput(id).value.trim() : '';
+    return sel.value === MODEL_CUSTOM ? modelInput(id).value.trim() : sel.value;
+}
+
+function syncCustomInput(id, focus) {
+    const isCustom = modelSelect(id).value === MODEL_CUSTOM;
+    modelInput(id).style.display = isCustom ? 'block' : 'none';
+    if (isCustom && focus) modelInput(id).focus();
+}
+
+// `current` is always offered even when the provider didn't list it, so a
+// pinned id is never silently swapped out just because listing failed.
+function renderModelOptions(id, models, current) {
+    const sel = modelSelect(id);
+    const list = (models || []).slice();
+    if (current && !list.includes(current)) list.unshift(current);
+
+    sel.innerHTML = '';
+    list.forEach(m => {
+        const opt = document.createElement('option');
+        opt.value = m;
+        opt.textContent = m;      // textContent, not innerHTML — these ids come off the wire
+        sel.appendChild(opt);
+    });
+    const custom = document.createElement('option');
+    custom.value = MODEL_CUSTOM;
+    custom.textContent = 'Custom…';
+    sel.appendChild(custom);
+
+    sel.value = current && list.includes(current) ? current : (list[0] || MODEL_CUSTOM);
+    syncCustomInput(id, false);
+}
+
+async function loadModelsFor(id, force) {
+    if (!window.ChoreAgent) return;
+    const hint = modelHint(id);
+    const cfg = window.ChoreAgent.getConfig().providers[id];
+    const key = document.getElementById(`${id}-key-input`).value.trim();
+    const current = chosenModel(id) || cfg.model;
+
+    if (!key) {
+        renderModelOptions(id, cfg.fallbacks, current);
+        hint.textContent = 'Add a key above, then refresh to list the models it can use.';
+        return;
+    }
+
+    hint.textContent = 'Reading available models…';
+    const res = await window.ChoreAgent.listModels(id, key, { force });
+    renderModelOptions(id, res.models, current);
+    hint.textContent = res.ok
+        ? `${res.models.length} model${res.models.length === 1 ? '' : 's'} available to this key.`
+        : `Couldn't list models — ${res.error}. Showing known defaults; pick Custom… to type an id.`;
+}
+
 window.openSettings = () => {
     document.getElementById('github-token-input').value = GITHUB_TOKEN;
     document.getElementById('gist-id-input').value = GIST_ID;
@@ -234,15 +302,34 @@ window.openSettings = () => {
         document.getElementById('ai-provider-input').value = cfg.provider;
         AI_PROVIDERS.forEach(id => {
             document.getElementById(`${id}-key-input`).value = cfg.providers[id].key;
-            document.getElementById(`${id}-model-input`).value = cfg.providers[id].model;
+            modelInput(id).value = cfg.providers[id].model;
+            // Seed from what we already know so the picker is populated on the
+            // first paint; the live list replaces it a moment later.
+            renderModelOptions(id, cfg.providers[id].fallbacks, cfg.providers[id].model);
+            modelHint(id).textContent = '';
         });
     }
     syncProviderFields();
 
     document.getElementById('settings-modal').style.display = 'flex';
+    // Only the visible provider is fetched — no reason to spend three round trips.
+    if (window.ChoreAgent) loadModelsFor(document.getElementById('ai-provider-input').value);
 };
 
-document.getElementById('ai-provider-input').addEventListener('change', syncProviderFields);
+document.getElementById('ai-provider-input').addEventListener('change', () => {
+    syncProviderFields();
+    loadModelsFor(document.getElementById('ai-provider-input').value);
+});
+
+AI_PROVIDERS.forEach(id => {
+    modelSelect(id).addEventListener('change', () => syncCustomInput(id, true));
+    // A pasted key is the moment the list becomes fetchable.
+    document.getElementById(`${id}-key-input`).addEventListener('change', () => loadModelsFor(id, true));
+});
+
+document.querySelectorAll('.model-refresh-btn').forEach(btn => {
+    btn.addEventListener('click', () => loadModelsFor(btn.dataset.provider, true));
+});
 
 document.getElementById('close-settings-btn').addEventListener('click', () => {
     document.getElementById('settings-modal').style.display = 'none';
@@ -259,7 +346,7 @@ document.getElementById('save-settings-btn').addEventListener('click', () => {
         AI_PROVIDERS.forEach(id => {
             config[id] = {
                 key: document.getElementById(`${id}-key-input`).value.trim(),
-                model: document.getElementById(`${id}-model-input`).value.trim()
+                model: chosenModel(id)
             };
         });
         window.ChoreAgent.setCredentials(config);

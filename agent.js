@@ -766,10 +766,12 @@
         const res = await fetch(`${this.base}/models`, { headers: { 'Authorization': `Bearer ${key}` } });
         if (!res.ok) return { ok: false, status: res.status, detail: await readErrorDetail(res) };
         const json = await res.json();
-        const skip = /embedding|whisper|tts|dall-e|audio|realtime|image|moderation|transcribe|search|instruct|davinci|babbage|codex/i;
-        const names = (json.data || [])
-          .map(m => String(m.id))
-          .filter(id => /^(gpt-|o\d)/.test(id) && !skip.test(id));
+        // Deny-list only. An allow-list of known families (/^gpt-|^o\d/) silently
+        // hid every model whose name didn't follow the old convention, so a new
+        // family would never appear in the picker no matter what the key could
+        // reach. Anything not obviously a non-chat endpoint is offered.
+        const skip = /embedding|whisper|tts|dall-e|audio|realtime|image|moderation|transcribe|search|instruct|davinci|babbage|ada|curie|similarity|edit/i;
+        const names = (json.data || []).map(m => String(m.id)).filter(id => !skip.test(id));
         return { ok: true, models: rankBy(names, this.rankKey) };
       },
 
@@ -854,7 +856,9 @@
         const res = await fetch(`${this.base}/models?limit=100`, { headers: this.headers(key) });
         if (!res.ok) return { ok: false, status: res.status, detail: await readErrorDetail(res) };
         const json = await res.json();
-        const names = (json.data || []).map(m => String(m.id)).filter(id => /^claude-/.test(id));
+        // No name filter: this endpoint only lists models the key can actually
+        // call, so filtering on /^claude-/ could only ever hide a new family.
+        const names = (json.data || []).map(m => String(m.id));
         return { ok: true, models: rankBy(names, this.rankKey) };
       },
 
@@ -1266,10 +1270,47 @@
         key: creds[id].key,
         model: creds[id].model,
         defaultModel: PROVIDERS[id].defaultModel,
+        fallbacks: PROVIDERS[id].fallbacks.slice(),
         keyUrl: PROVIDERS[id].keyUrl
       };
     });
     return out;
+  }
+
+  // Model lists change under us — new families ship, keys gain and lose access —
+  // so the picker asks the provider rather than trusting a hardcoded list.
+  // Cached per key so reopening Settings doesn't re-hit the network.
+  const modelListCache = {};   // provider id → { key, models }
+
+  /**
+   * List the models a key can reach. Always resolves with a usable `models`
+   * array: on any failure it falls back to the built-in chain, so the picker
+   * is never empty and the user can still pick something.
+   */
+  async function listModels(providerId, key, opts) {
+    const p = PROVIDERS[providerId];
+    if (!p) return { ok: false, error: `unknown provider "${providerId}"`, models: [] };
+
+    const fallbacks = p.fallbacks.slice();
+    const trimmed = (key || '').trim();
+    if (!trimmed) return { ok: false, error: 'no API key', models: fallbacks, needsKey: true };
+
+    const cached = modelListCache[providerId];
+    if (cached && cached.key === trimmed && !(opts && opts.force)) {
+      return { ok: true, models: cached.models.slice(), cached: true };
+    }
+
+    try {
+      const disc = await p.discover(trimmed);
+      if (!disc.ok) {
+        const why = disc.status === 401 ? 'the key was rejected' : `HTTP ${disc.status}`;
+        return { ok: false, error: disc.detail ? `${why}: ${disc.detail}` : why, models: fallbacks };
+      }
+      modelListCache[providerId] = { key: trimmed, models: disc.models };
+      return { ok: true, models: disc.models.slice() };
+    } catch (e) {
+      return { ok: false, error: e.message || String(e), models: fallbacks };
+    }
   }
 
   loadCredentials();
@@ -1278,6 +1319,7 @@
     init,
     setCredentials,
     getConfig,
+    listModels,
     run: runAgent,
     providerIds: PROVIDER_IDS,
     getProvider: () => activeProvider,

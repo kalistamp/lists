@@ -1197,6 +1197,25 @@ input[type="number"]:focus {
 .provider-fields { display: none; }
 .provider-fields[data-provider="gemini"] { display: block; }
 
+/* Model dropdown + its refresh button. The select takes the leftover width so
+   long model ids stay readable; min-width:0 lets it shrink inside the flex row
+   rather than pushing the button off the modal on a narrow phone. */
+.model-picker {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+.model-picker select {
+  flex: 1;
+  min-width: 0;
+}
+.model-refresh-btn {
+  flex: 0 0 auto;
+  padding: 0 14px;
+  min-width: 46px;
+}
+.model-custom-input { margin-top: 8px; }
+
 /* ---------- Notes ---------- */
 .module-header { margin-bottom: 14px; }
 #notes-area {
