@@ -52,8 +52,34 @@
     return toHHMM(Math.min(start + 13 * 60, 23 * 60));
   }
 
+  // Earliest start at or after `from` where the block, plus a cushion on either
+  // side, clears everything already placed. Loops because stepping past one
+  // block can land you inside the next.
+  function firstFreeSlot(from, duration, occupied, cushion) {
+    let start = from;
+    for (let guard = 0; guard <= occupied.length; guard++) {
+      const clash = occupied.find(b => start < b.end + cushion && b.start < start + duration + cushion);
+      if (!clash) return start;
+      start = clash.end + cushion;   // each pass clears at least one block
+    }
+    return start;
+  }
+
   /**
    * Lay an ordered list of tasks onto the clock with cushions between them.
+   *
+   * List order is priority order and is also chronological order: an item
+   * earlier in the list is never scheduled after a later one. Three optional
+   * per-item constraints let a commitment be pinned or confined without the
+   * caller doing any arithmetic itself:
+   *
+   *   startAt    "HH:MM" — pin to exactly this time
+   *   notBefore  "HH:MM" — don't start before this
+   *   notAfter   "HH:MM" — don't start after this
+   *
+   * Pinned items are laid down first and everything else flows around them, so
+   * a fixed commitment ("helping family 17:00–18:00") holds its slot regardless
+   * of what sits ahead of it in the list.
    *
    * @param {string} startTime      "HH:MM" wake-up / start of day
    * @param {string} [endTime]      "HH:MM" end of day (default: start + 13h)
@@ -61,7 +87,8 @@
    * @param {number} [maxLoadPercent] share of the waking window that may be
    *                                committed to tasks (default 65) — this is
    *                                what keeps the day from filling up
-   * @param {Array}  items          [{ id, text, durationMin }] in priority order
+   * @param {Array}  items          [{ id, text, durationMin, startAt?,
+   *                                notBefore?, notAfter? }] in priority order
    */
   function planBlocks(opts) {
     const o = opts || {};
@@ -87,60 +114,117 @@
     const items = Array.isArray(o.items) ? o.items : [];
     const scheduled = [];
     const skipped = [];
+    const occupied = [];      // every block laid down so far, as {start, end}
 
-    let cursor = startMin;
     let workMin = 0;
 
-    for (const item of items) {
-      const raw = numOr(item && item.durationMin, NaN);
-      if (!Number.isFinite(raw) || raw <= 0) {
-        skipped.push({ id: item && item.id, text: item && item.text, reason: 'invalid-duration' });
-        continue;
-      }
-      const duration = clamp(Math.round(raw), MIN_TASK, MAX_TASK);
+    const has = (v) => v !== undefined && v !== null && String(v).trim() !== '';
+    const prepared = items.map(raw => {
+      const it = raw || {};
+      return {
+        it,
+        pinned: has(it.startAt),
+        at: toMinutes(it.startAt),
+        notBefore: toMinutes(it.notBefore),
+        notAfter: toMinutes(it.notAfter),
+        badWindow: (has(it.notBefore) && toMinutes(it.notBefore) === null) ||
+                   (has(it.notAfter) && toMinutes(it.notAfter) === null)
+      };
+    });
 
+    const skip = (it, reason, detail) =>
+      skipped.push(detail
+        ? { id: it && it.id, text: it && it.text, reason, detail }
+        : { id: it && it.id, text: it && it.text, reason });
+
+    // Duration and budget gates are identical for pinned and floating items.
+    const durationOf = (it) => {
+      const raw = numOr(it && it.durationMin, NaN);
+      if (!Number.isFinite(raw) || raw <= 0) { skip(it, 'invalid-duration'); return null; }
+      return clamp(Math.round(raw), MIN_TASK, MAX_TASK);
+    };
+
+    const fitsBudget = (it, duration) => {
       // A single task bigger than the whole budget can never fit
       if (duration > budgetMin) {
-        skipped.push({
-          id: item.id,
-          text: item.text,
-          reason: 'too-long-for-window',
-          detail: `${duration}m exceeds the ${budgetMin}m of task time available today`
-        });
-        continue;
+        skip(it, 'too-long-for-window', `${duration}m exceeds the ${budgetMin}m of task time available today`);
+        return false;
       }
       // Load cap: protects slack beyond the between-task cushions
       if (workMin + duration > budgetMin) {
-        skipped.push({
-          id: item.id,
-          text: item.text,
-          reason: 'over-load-cap',
-          detail: `would push committed time past ${maxLoadPercent}% of the day`
-        });
+        skip(it, 'over-load-cap', `would push committed time past ${maxLoadPercent}% of the day`);
+        return false;
+      }
+      return true;
+    };
+
+    const place = (it, duration, start, pinned) => {
+      scheduled.push({
+        id: it.id,
+        text: it.text,
+        start: toHHMM(start),
+        end: toHHMM(start + duration),
+        durationMin: duration,
+        pinned: !!pinned
+      });
+      occupied.push({ start, end: start + duration });
+      workMin += duration;
+    };
+
+    // ── Pass 1: pinned commitments claim their slots first ──────────
+    for (const p of prepared) {
+      if (!p.pinned) continue;
+      if (p.at === null) { skip(p.it, 'bad-start-at', `could not read "${p.it.startAt}"; use 24-hour "HH:MM"`); continue; }
+      const duration = durationOf(p.it);
+      if (duration === null) continue;
+      if (!fitsBudget(p.it, duration)) continue;
+
+      if (p.at < startMin || p.at + duration > endMin) {
+        skip(p.it, 'outside-day-window',
+          `${toHHMM(p.at)}–${toHHMM(p.at + duration)} falls outside ${toHHMM(startMin)}–${toHHMM(endMin)}`);
+        continue;
+      }
+      const clash = occupied.find(b => p.at < b.end && b.start < p.at + duration);
+      if (clash) {
+        skip(p.it, 'clashes-with-pinned-block',
+          `${toHHMM(p.at)} overlaps the block at ${toHHMM(clash.start)}–${toHHMM(clash.end)}`);
+        continue;
+      }
+      place(p.it, duration, p.at, true);
+    }
+
+    // ── Pass 2: everything else flows around the pins ───────────────
+    // `cursor` only ever moves forward, which is what keeps list order and
+    // clock order the same. A task pushed past a pin therefore drags the rest
+    // of the list after it rather than back-filling the gap it left.
+    let cursor = startMin;
+    for (const p of prepared) {
+      if (p.pinned) continue;
+      if (p.badWindow) { skip(p.it, 'bad-time-constraint', 'notBefore/notAfter must be 24-hour "HH:MM"'); continue; }
+
+      const duration = durationOf(p.it);
+      if (duration === null) continue;
+      if (!fitsBudget(p.it, duration)) continue;
+
+      const earliest = Math.max(cursor, startMin, p.notBefore === null ? startMin : p.notBefore);
+      const start = firstFreeSlot(earliest, duration, occupied, cushionMin);
+
+      if (p.notAfter !== null && start > p.notAfter) {
+        skip(p.it, 'no-slot-before-cutoff',
+          `earliest free slot is ${toHHMM(start)}, past the ${toHHMM(p.notAfter)} cutoff`);
         continue;
       }
       // Hard wall at end of day
-      if (cursor + duration > endMin) {
-        skipped.push({
-          id: item.id,
-          text: item.text,
-          reason: 'past-end-of-day',
-          detail: `would run past ${toHHMM(endMin)}`
-        });
+      if (start + duration > endMin) {
+        skip(p.it, 'past-end-of-day', `would run past ${toHHMM(endMin)}`);
         continue;
       }
 
-      scheduled.push({
-        id: item.id,
-        text: item.text,
-        start: toHHMM(cursor),
-        end: toHHMM(cursor + duration),
-        durationMin: duration
-      });
-
-      workMin += duration;
-      cursor += duration + cushionMin;
+      place(p.it, duration, start, false);
+      cursor = start + duration + cushionMin;
     }
+
+    scheduled.sort((a, b) => toMinutes(a.start) - toMinutes(b.start));
 
     // Cushions only count between tasks, not after the last one
     const cushionTotalMin = scheduled.length > 1 ? (scheduled.length - 1) * cushionMin : 0;

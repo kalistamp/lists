@@ -175,12 +175,15 @@
           max_load_percent: { type: 'NUMBER', description: 'Share of waking hours that may be committed to tasks. Defaults to the day window fullness cap. Lower means a lighter day.' },
           items: {
             type: 'ARRAY',
-            description: 'Chores in chronological order.',
+            description: 'Chores in priority order, which is also the order they will run in.',
             items: {
               type: 'OBJECT',
               properties: {
                 chore_id: { type: 'NUMBER' },
-                duration_min: { type: 'NUMBER', description: 'Estimate in minutes. Required — infer a realistic value if the chore has none.' }
+                duration_min: { type: 'NUMBER', description: 'Estimate in minutes. Required — infer a realistic value if the chore has none.' },
+                start_at: { type: 'STRING', description: 'Pin to exactly this 24-hour "HH:MM". Use only for a real fixed commitment the user gave a time for ("the call is at 2"). Pinned items claim their slot first and everything else is laid around them.' },
+                not_before: { type: 'STRING', description: 'Earliest it may start, 24-hour "HH:MM". This is how you honour "later on", "after lunch", "towards the end of the day" — give the boundary, not a computed slot.' },
+                not_after: { type: 'STRING', description: 'Latest it may start, 24-hour "HH:MM". Use for "before the shops shut", "first thing".' }
               },
               required: ['chore_id', 'duration_min']
             }
@@ -450,6 +453,9 @@
           durationMin: Number(it && it.duration_min) > 0
             ? Number(it.duration_min)
             : (c ? App().effectiveDuration(c) : NaN),
+          startAt: it && it.start_at,
+          notBefore: it && it.not_before,
+          notAfter: it && it.not_after,
           missing: !c || isDaily,
           isDaily
         };
@@ -479,7 +485,8 @@
 
       return {
         scheduled: result.scheduled.map(b => ({
-          chore_id: b.id, text: b.text, start: b.start, end: b.end, duration_min: b.durationMin
+          chore_id: b.id, text: b.text, start: b.start, end: b.end, duration_min: b.durationMin,
+          pinned: b.pinned || undefined
         })),
         not_scheduled: result.skipped.map(s => ({
           chore_id: s.id, text: s.text, reason: s.reason, detail: s.detail || null
@@ -619,6 +626,17 @@
       '4. Estimate a realistic duration for anything without one, and round to something human (15, 30, 45, 60 minutes). Err generous.',
       '5. Call build_day_schedule with the ordered list. It does the clock maths, inserts the cushions and enforces the limits. Never compute times yourself.',
       '6. Read what it returns. Report the schedule chronologically with exact start and end times, then say plainly what you left out and why — naming the urgency of anything you dropped.',
+      '',
+      'COMMITMENTS MENTIONED IN PASSING',
+      'The user will often name something that is not on the list at all — "I have to spend an hour helping family", "the plumber is coming at 11", "I promised to call my sister tonight". Treat that as a task to be created, not merely as context for ordering the existing ones:',
+      '1. add_chore it first, with a realistic duration and the category it belongs in. Star it only if they signalled it matters more than the rest.',
+      '2. Take the id from the result and include it in the SAME build_day_schedule call as everything else, so the day is laid out once, as a whole.',
+      '3. Translate where they want it into a constraint instead of a slot you worked out yourself:',
+      '     "at 11", "the 2pm call"          → start_at',
+      '     "later", "towards the end", "this evening", "after lunch"  → not_before',
+      '     "first thing", "before the shops shut", "this morning"     → not_after',
+      '   Pick the boundary the words imply against the day window above and let the tool find the actual time. Do not compute a slot and pass it as start_at — reserve start_at for a clock time they actually named.',
+      'If the tool reports a pinned item as clashes-with-pinned-block or outside-day-window, say so and offer the nearest workable time. Do not quietly move a commitment the user gave a fixed time for.',
       '',
       'The default cushion is 15 minutes and the default load cap is 65% of waking hours. If the user asks for a gentle, slow or recovery day, raise the cushion to 20–30 and drop the load cap to 40–50. If they ask for a productive push, you may go to 75–80, but never remove cushions entirely.',
       '',
