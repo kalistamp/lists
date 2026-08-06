@@ -1184,6 +1184,18 @@ input[type="number"]:focus {
   margin-top: 6px;
 }
 .field-hint a { color: var(--clay-deep); }
+.field-hint code {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.9em;
+  background: var(--clay-wash);
+  border-radius: 4px;
+  padding: 1px 4px;
+}
+
+/* Only the chosen provider's key/model pair is shown. openSettings() sets the
+   display inline; these rules are the sane fallback if that never runs. */
+.provider-fields { display: none; }
+.provider-fields[data-provider="gemini"] { display: block; }
 
 /* ---------- Notes ---------- */
 .module-header { margin-bottom: 14px; }

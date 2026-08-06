@@ -213,14 +213,36 @@ if (window.matchMedia) {
 syncThemeButton();
 
 // MODAL CONTROLS
+const AI_PROVIDERS = ['gemini', 'openai', 'anthropic'];
+
+// Only the selected provider's key/model pair is on screen. Toggled with an
+// inline style rather than a class for the same reason the Add task form is:
+// a stale cached style.css must not be able to strand the fields hidden.
+function syncProviderFields() {
+    const chosen = document.getElementById('ai-provider-input').value;
+    document.querySelectorAll('.provider-fields').forEach(block => {
+        block.style.display = block.dataset.provider === chosen ? 'block' : 'none';
+    });
+}
+
 window.openSettings = () => {
     document.getElementById('github-token-input').value = GITHUB_TOKEN;
     document.getElementById('gist-id-input').value = GIST_ID;
-    document.getElementById('gemini-key-input').value = localStorage.getItem('geminiKey') || '';
-    document.getElementById('gemini-model-input').value =
-        localStorage.getItem('geminiModel') || (window.ChoreAgent ? window.ChoreAgent.defaultModel : '');
+
+    if (window.ChoreAgent) {
+        const cfg = window.ChoreAgent.getConfig();
+        document.getElementById('ai-provider-input').value = cfg.provider;
+        AI_PROVIDERS.forEach(id => {
+            document.getElementById(`${id}-key-input`).value = cfg.providers[id].key;
+            document.getElementById(`${id}-model-input`).value = cfg.providers[id].model;
+        });
+    }
+    syncProviderFields();
+
     document.getElementById('settings-modal').style.display = 'flex';
 };
+
+document.getElementById('ai-provider-input').addEventListener('change', syncProviderFields);
 
 document.getElementById('close-settings-btn').addEventListener('click', () => {
     document.getElementById('settings-modal').style.display = 'none';
@@ -233,10 +255,14 @@ document.getElementById('save-settings-btn').addEventListener('click', () => {
     localStorage.setItem('gistId', GIST_ID);
 
     if (window.ChoreAgent) {
-        window.ChoreAgent.setCredentials(
-            document.getElementById('gemini-key-input').value.trim(),
-            document.getElementById('gemini-model-input').value.trim()
-        );
+        const config = { provider: document.getElementById('ai-provider-input').value };
+        AI_PROVIDERS.forEach(id => {
+            config[id] = {
+                key: document.getElementById(`${id}-key-input`).value.trim(),
+                model: document.getElementById(`${id}-model-input`).value.trim()
+            };
+        });
+        window.ChoreAgent.setCredentials(config);
     }
 
     document.getElementById('settings-modal').style.display = 'none';

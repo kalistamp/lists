@@ -21,7 +21,7 @@
             } catch (e) {}
         })();
     </script>
-    <link rel="stylesheet" href="./style.css?v=10">
+    <link rel="stylesheet" href="./style.css?v=11">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -51,13 +51,52 @@
             </div>
             <hr class="settings-divider">
             <div class="field-group">
-                <label>Gemini API key</label>
-                <input type="password" id="gemini-key-input" placeholder="AIza…">
+                <label>AI provider</label>
+                <select id="ai-provider-input">
+                    <option value="gemini">Google Gemini</option>
+                    <option value="openai">OpenAI</option>
+                    <option value="anthropic">Anthropic</option>
+                </select>
+                <p class="field-hint">Keys are stored separately per provider, so switching back doesn't lose the other one.</p>
             </div>
-            <div class="field-group">
-                <label>Gemini model</label>
-                <input type="text" id="gemini-model-input" placeholder="gemini-flash-latest">
-                <p class="field-hint">The planner tries this first, then falls back to other current models and, if needed, auto-detects one your key supports. Only change it to pin a specific id.</p>
+
+            <div class="provider-fields" data-provider="gemini">
+                <div class="field-group">
+                    <label>Gemini API key</label>
+                    <input type="password" id="gemini-key-input" placeholder="AIza…">
+                    <p class="field-hint">Free key from <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a>. Stored only in this browser.</p>
+                </div>
+                <div class="field-group">
+                    <label>Gemini model</label>
+                    <input type="text" id="gemini-model-input" placeholder="gemini-flash-latest">
+                    <p class="field-hint">Leave blank for the latest Flash. The planner falls back to other current models and, if needed, auto-detects one your key supports.</p>
+                </div>
+            </div>
+
+            <div class="provider-fields" data-provider="openai">
+                <div class="field-group">
+                    <label>OpenAI API key</label>
+                    <input type="password" id="openai-key-input" placeholder="sk-…">
+                    <p class="field-hint">Key from <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">platform.openai.com/api-keys</a>. Stored only in this browser.</p>
+                </div>
+                <div class="field-group">
+                    <label>OpenAI model</label>
+                    <input type="text" id="openai-model-input" placeholder="gpt-5.1">
+                    <p class="field-hint">Leave blank for the latest GPT-5.1. Falls back through gpt-5, gpt-4.1 and gpt-4o.</p>
+                </div>
+            </div>
+
+            <div class="provider-fields" data-provider="anthropic">
+                <div class="field-group">
+                    <label>Anthropic API key</label>
+                    <input type="password" id="anthropic-key-input" placeholder="sk-ant-…">
+                    <p class="field-hint">Key from <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com/settings/keys</a>. Stored only in this browser.</p>
+                </div>
+                <div class="field-group">
+                    <label>Anthropic model</label>
+                    <input type="text" id="anthropic-model-input" placeholder="claude-sonnet-5">
+                    <p class="field-hint">Leave blank for Sonnet 5. Use <code>claude-opus-5</code> for the most capable option or <code>claude-haiku-4-5-20251001</code> for the cheapest.</p>
+                </div>
             </div>
             <div class="modal-actions">
                 <button class="btn btn-primary" id="save-settings-btn">Save</button>
@@ -267,8 +306,8 @@
         </main>
     </div>
 
-    <script src="./scheduler.js?v=10"></script>
-    <script src="./script.js?v=10"></script>
-    <script src="./agent.js?v=10"></script>
+    <script src="./scheduler.js?v=11"></script>
+    <script src="./script.js?v=11"></script>
+    <script src="./agent.js?v=11"></script>
 </body>
 </html>

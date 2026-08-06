@@ -1,25 +1,38 @@
 /* ============================================================
-   CHORE AGENT — Gemini function-calling loop
+   CHORE AGENT — provider-agnostic function-calling loop
    The model is given tools that map onto real app operations and
    runs a read → act → observe loop until it has an answer. All
    clock arithmetic is delegated to scheduler.js; the model's job
    is judgement (what to do, in what order), not maths.
+
+   Gemini, OpenAI and Anthropic are all supported. Everything above
+   the PROVIDERS section — tools, prompt, scheduling, transcript —
+   is shared; each adapter only knows its vendor's wire format.
    ============================================================ */
 
 (function () {
   'use strict';
 
-  const API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
-  const DEFAULT_MODEL = 'gemini-flash-latest';
-  const FALLBACK_MODELS = ['gemini-flash-latest', 'gemini-pro-latest', 'gemini-flash-lite-latest'];
   const MAX_STEPS = 8;
   const CATEGORIES = ['daily', 'errands', 'oneoff'];
   const URGENCIES = ['low', 'medium', 'high', 'urgent'];
 
-  let GEMINI_KEY = localStorage.getItem('geminiKey') || '';
-  let GEMINI_MODEL = localStorage.getItem('geminiModel') || DEFAULT_MODEL;
+  const PROVIDER_IDS = ['gemini', 'openai', 'anthropic'];
+  const DEFAULT_PROVIDER = 'gemini';
 
-  let resolvedModel = null;
+  // Credentials are kept per provider so switching back and forth never makes
+  // you re-paste a key. Gemini keeps its original storage names so installs
+  // that predate multi-provider support carry over untouched.
+  const STORAGE = {
+    provider: 'aiProvider',
+    gemini: { key: 'geminiKey', model: 'geminiModel' },
+    openai: { key: 'openaiKey', model: 'openaiModel' },
+    anthropic: { key: 'anthropicKey', model: 'anthropicModel' }
+  };
+
+  let activeProvider = DEFAULT_PROVIDER;
+  const creds = {};          // provider id → { key, model }
+  const resolvedModel = {};  // provider id → the model id that last answered
   let running = false;
 
   // Display-only record of the model that actually produced the last draft.
@@ -124,14 +137,14 @@
     },
     {
       name: 'build_day_schedule',
-      description: "Replace Today's plan with a time-blocked schedule. You supply non-daily chores in the order they should happen and how long each takes; this tool does all the clock arithmetic, inserts cushions between tasks, stops at the end of the day and enforces a load cap. Note: any 'daily' chores are automatically filtered out.",
+      description: "Replace Today's plan with a time-blocked schedule. You supply non-daily chores in the order they should happen and how long each takes; this tool does all the clock arithmetic, inserts cushions between tasks, stops at the end of the day and enforces a load cap. Any omitted setting falls back to the day window shown in your instructions, so pass one only when the user asked for something different. Note: any 'daily' chores are automatically filtered out.",
       parameters: {
         type: 'OBJECT',
         properties: {
-          start_time: { type: 'STRING', description: 'Wake-up / start of day, 24-hour "HH:MM".' },
-          end_time: { type: 'STRING', description: 'Wind-down time, 24-hour "HH:MM". Defaults to 13 hours after start.' },
-          cushion_min: { type: 'NUMBER', description: 'Buffer in minutes after each task. Default 15. Use 20–30 for a deliberately relaxed day.' },
-          max_load_percent: { type: 'NUMBER', description: 'Share of waking hours that may be committed to tasks. Default 65. Lower means a lighter day.' },
+          start_time: { type: 'STRING', description: 'Wake-up / start of day, 24-hour "HH:MM". Defaults to the start of the day window.' },
+          end_time: { type: 'STRING', description: 'Wind-down time, 24-hour "HH:MM". Defaults to the end of the day window.' },
+          cushion_min: { type: 'NUMBER', description: 'Buffer in minutes after each task. Defaults to the day window cushion. Use 20–30 for a deliberately relaxed day.' },
+          max_load_percent: { type: 'NUMBER', description: 'Share of waking hours that may be committed to tasks. Defaults to the day window fullness cap. Lower means a lighter day.' },
           items: {
             type: 'ARRAY',
             description: 'Chores in chronological order.',
@@ -145,7 +158,7 @@
             }
           }
         },
-        required: ['start_time', 'items']
+        required: ['items']
       }
     },
     {
@@ -187,6 +200,28 @@
   // ─────────────────────────────────────────────
   const App = () => window.ChoresApp;
   const Sched = () => window.ChoreScheduler;
+
+  // The planner's start / wind-down / cushion / fullness controls describe the
+  // day itself, not just the arguments of the "Plan my day" button. A freeform
+  // ask like "shift everything an hour later" is unanswerable without them, so
+  // they are read fresh on every run and fed to BOTH entry points — as context
+  // in the system prompt and as the defaults build_day_schedule falls back to.
+  function readDayControls() {
+    const val = (id) => {
+      if (typeof document === 'undefined') return '';
+      const el = document.getElementById(id);
+      return el ? String(el.value || '').trim() : '';
+    };
+    const num = (id, fallback) => {
+      const n = Number(val(id));
+      return Number.isFinite(n) && n > 0 ? n : fallback;
+    };
+
+    const start = val('agent-wake-time') || currentTimeHHMM();
+    const endRaw = val('agent-end-time');
+    const end = endRaw || Sched().defaultEndTime(start);
+    return { start, end, endExplicit: !!endRaw, cushion: num('agent-cushion', 15), load: num('agent-load', 65) };
+  }
 
   function compactChore(c, plan, blocks) {
     const out = {
@@ -343,11 +378,14 @@
       const dailySkipped = items.filter(i => i.isDaily).map(i => i.text);
       const known = items.filter(i => !i.missing);
 
+      // Anything the model left out comes from the planner controls, so a bare
+      // "shift everything an hour later" still lands inside the user's day.
+      const day = readDayControls();
       const result = Sched().planBlocks({
-        startTime: args.start_time,
-        endTime: args.end_time,
-        cushionMin: args.cushion_min,
-        maxLoadPercent: args.max_load_percent,
+        startTime: args.start_time || day.start,
+        endTime: args.end_time || day.end,
+        cushionMin: args.cushion_min != null ? args.cushion_min : day.cushion,
+        maxLoadPercent: args.max_load_percent != null ? args.max_load_percent : day.load,
         items: known
       });
 
@@ -439,10 +477,25 @@
     const doneCount = chores.filter(c => c.type !== 'daily' && c.completed).length;
     const notes = (app.getNotes() || '').trim();
 
+    const day = readDayControls();
+    const windowMin = Sched().toMinutes(day.end) - Sched().toMinutes(day.start);
+    const windowLabel = windowMin > 0
+      ? `${Math.floor(windowMin / 60)}h${windowMin % 60 ? ` ${windowMin % 60}m` : ''}`
+      : 'not a valid window — say so rather than guessing';
+
     return [
       "You are the planning assistant built into a personal chores app. You act on the user's real data through the tools provided — you are not a chat bot describing what could be done, you make the changes.",
       '',
       `Today is ${now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}. The current time is ${now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}.`,
+      '',
+      'THE DAY WINDOW',
+      'These are the planner controls as the user has them set right now. They describe the whole day and apply to EVERY request, not only "plan my day":',
+      `  • Start of day: ${day.start}`,
+      `  • Wind down by: ${day.end}${day.endExplicit ? '' : ' (derived — the user left this blank)'}`,
+      `  • Cushion between tasks: ${day.cushion} minutes`,
+      `  • Day fullness cap: ${day.load}% of the waking window`,
+      `That is a waking window of ${windowLabel}. Never place a block before ${day.start} or ending after ${day.end}, and answer questions about "today", "this morning", "later" or "the rest of the day" against this window rather than inventing one. If the user's message names different times, those win for that request.`,
+      'build_day_schedule uses all four of these automatically when you omit the matching argument, so pass one only to override it deliberately.',
       '',
       'CRITICAL CATEGORY RULE:',
       'Tasks belonging to the "daily" category MUST NEVER be scheduled or included in Today\'s plan by the LLM planner. Daily tasks are habits handled separately by the user and are completely excluded from AI day planning.',
@@ -483,46 +536,33 @@
   }
 
   // ─────────────────────────────────────────────
-  // GEMINI CALL
+  // PROVIDER PLUMBING
   // ─────────────────────────────────────────────
-  function modelCandidates() {
-    const ordered = [GEMINI_MODEL, ...FALLBACK_MODELS];
-    return ordered.filter((m, i) => m && ordered.indexOf(m) === i);
-  }
 
-  function isModelAvailabilityError(status, detail) {
-    if (status === 404) return true;
-    const d = (detail || '').toLowerCase();
-    if ((status === 400 || status === 403) && /API key/i.test(detail) === false) {
-      return /model|not found|not supported|does not exist|no access|permission/.test(d);
-    }
-    return false;
-  }
-
-  // Transient server-side failures. 503 ("the model is overloaded") is by far
-  // the common one, and it says nothing about whether the model is usable — so
-  // it must not abort the run. It previously fell through to the generic throw
-  // in attemptModel, which killed the whole chain before a single fallback
-  // model got a turn: the exact reason a 503 left the planner stuck.
-  function isOverloadedError(status, detail) {
-    if (status === 503 || status === 500) return true;
-    return /overloaded|try again later|temporarily unavailable/i.test(detail || '');
-  }
-
-  async function requestModel(model, contents, systemPrompt) {
-    const url = `${API_BASE}/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(GEMINI_KEY)}`;
-    return fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        systemInstruction: { parts: [{ text: systemPrompt }] },
-        contents,
-        tools: [{ functionDeclarations }],
-        toolConfig: { functionCallingConfig: { mode: 'AUTO' } },
-        generationConfig: { temperature: 0.4, maxOutputTokens: 2048 }
-      })
+  // Gemini spells its schema types with the proto's uppercase enum names;
+  // OpenAI and Anthropic want ordinary JSON Schema. One recursive lowercase
+  // pass means the tool set above stays written once.
+  function toJsonSchema(node) {
+    if (Array.isArray(node)) return node.map(toJsonSchema);
+    if (!node || typeof node !== 'object') return node;
+    const out = {};
+    Object.keys(node).forEach(k => {
+      const v = node[k];
+      out[k] = (k === 'type' && typeof v === 'string') ? v.toLowerCase() : toJsonSchema(v);
     });
+    return out;
   }
+
+  const EMPTY_SCHEMA = { type: 'object', properties: {} };
+  const openAiTools = () => functionDeclarations.map(f => ({
+    type: 'function',
+    function: { name: f.name, description: f.description, parameters: toJsonSchema(f.parameters) || EMPTY_SCHEMA }
+  }));
+  const anthropicTools = () => functionDeclarations.map(f => ({
+    name: f.name,
+    description: f.description,
+    input_schema: toJsonSchema(f.parameters) || EMPTY_SCHEMA
+  }));
 
   async function readErrorDetail(res) {
     try {
@@ -531,57 +571,313 @@
     } catch (e) { return ''; }
   }
 
-  function candidateFromJson(json) {
-    const candidate = json.candidates && json.candidates[0];
-    if (!candidate) {
-      const blocked = json.promptFeedback && json.promptFeedback.blockReason;
-      throw new Error(blocked ? `Request blocked by Gemini (${blocked}).` : 'Gemini returned no candidates.');
-    }
-    return candidate;
+  // Two recoverable outcomes. Both let the chain move on to the next model, but
+  // they mean opposite things to the user: "unavailable" is a configuration
+  // problem worth fixing in Settings, while "overloaded" is the provider being
+  // busy and says nothing about whether the model is usable. Anything else
+  // aborts the run.
+  const SKIP = (kind, status, detail) => ({ skip: kind, status, detail: detail || '' });
+
+  // 503 ("the model is overloaded") is by far the common transient failure. It
+  // must not abort the run: falling through to a generic throw killed the whole
+  // chain before a single fallback model got a turn, which is exactly what left
+  // the planner stuck on a busy provider.
+  function isOverloaded(status, detail) {
+    if (status === 503 || status === 500) return true;
+    return /overloaded|try again later|temporarily unavailable/i.test(detail || '');
   }
 
-  async function attemptModel(model, contents, systemPrompt) {
-    const res = await requestModel(model, contents, systemPrompt);
-    if (res.ok) return { candidate: candidateFromJson(await res.json()) };
-
-    const detail = await readErrorDetail(res);
-    if (res.status === 429) {
-      throw new Error(`Gemini free-tier rate limit hit. Wait a minute and try again.${detail ? ` (${detail})` : ''}`);
+  function classifyHttpError(label, status, detail) {
+    const d = detail || '';
+    if (status === 429) throw new Error(`${label} rate limit hit. Wait a moment and try again.${d ? ` (${d})` : ''}`);
+    if (status === 401) throw new Error(`${label} rejected the API key. Check it in Settings.`);
+    if ((status === 400 || status === 403) && /api[ _-]?key|unauthorized|authentication/i.test(d)) {
+      throw new Error(`${label} rejected the API key. Check it in Settings.`);
     }
-    if (res.status === 400 && /API key/i.test(detail)) {
-      throw new Error('Gemini rejected the API key. Check it in Settings.');
+    if (status === 404 || ((status === 400 || status === 403) &&
+        /model/i.test(d) && /not found|not supported|does not exist|no access|permission|invalid|unsupported|deprecat/i.test(d))) {
+      return SKIP('unavailable', status, d);
     }
-    if (isModelAvailabilityError(res.status, detail)) return { skip: 'unavailable', status: res.status, detail };
-    if (isOverloadedError(res.status, detail)) return { skip: 'overloaded', status: res.status, detail };
-    throw new Error(`Gemini error ${res.status}${detail ? `: ${detail}` : ''}`);
+    if (isOverloaded(status, d)) return SKIP('overloaded', status, d);
+    if (status >= 500) throw new Error(`${label} is having trouble (HTTP ${status}). Try again shortly.`);
+    throw new Error(`${label} error ${status}${d ? `: ${d}` : ''}`);
   }
 
-  function rankModels(names) {
-    const version = (n) => { const m = n.match(/gemini-(\d+(?:\.\d+)?)/); return m ? parseFloat(m[1]) : 0; };
-    const key = (n) => [
-      /-latest$/.test(n) ? 0 : 1,
-      /lite/.test(n) ? 1 : 0,
-      /flash/.test(n) ? 0 : 1,
-      /preview|exp|thinking|tts|image|robotics|computer-use|customtools|embedding|aqa/.test(n) ? 1 : 0,
-      -version(n)
-    ];
+  // Sort discovered model ids by a per-provider tuple of tie-breakers; every
+  // entry is "lower is better" so one comparator serves all three.
+  function rankBy(names, keyFn) {
     return names
-      .map((n, idx) => ({ n, idx, k: key(n) }))
-      .sort((a, b) => { for (let i = 0; i < a.k.length; i++) { if (a.k[i] !== b.k[i]) return a.k[i] - b.k[i]; } return a.idx - b.idx; })
+      .map((n, idx) => ({ n, idx, k: keyFn(n) }))
+      .sort((a, b) => {
+        for (let i = 0; i < a.k.length; i++) { if (a.k[i] !== b.k[i]) return a.k[i] - b.k[i]; }
+        return a.idx - b.idx;
+      })
       .map(x => x.n);
   }
 
-  async function discoverModels() {
-    const res = await fetch(`${API_BASE}?key=${encodeURIComponent(GEMINI_KEY)}&pageSize=1000`);
-    if (!res.ok) return { ok: false, status: res.status, detail: await readErrorDetail(res) };
-    const json = await res.json();
-    const names = (json.models || [])
-      .filter(m => (m.supportedGenerationMethods || []).includes('generateContent'))
-      .map(m => String(m.name).replace(/^models\//, ''));
-    return { ok: true, models: rankModels(names) };
+  function parseToolArgs(raw) {
+    if (raw && typeof raw === 'object') return raw;
+    if (!raw) return {};
+    try { return JSON.parse(raw); } catch (e) { return {}; }
   }
 
-  async function callGemini(contents, systemPrompt) {
+  // ─────────────────────────────────────────────
+  // PROVIDERS
+  // Each adapter owns one vendor's wire format and nothing else. send()
+  // normalises to { raw, text, calls } (or an UNAVAILABLE marker); the push*
+  // helpers append to that provider's own message array.
+  // ─────────────────────────────────────────────
+  const PROVIDERS = {
+    gemini: {
+      id: 'gemini',
+      label: 'Gemini',
+      base: 'https://generativelanguage.googleapis.com/v1beta/models',
+      defaultModel: 'gemini-flash-latest',
+      fallbacks: ['gemini-flash-latest', 'gemini-pro-latest', 'gemini-flash-lite-latest'],
+      keyUrl: 'aistudio.google.com/apikey',
+
+      newConvo: () => [],
+      pushUser(convo, text) { convo.push({ role: 'user', parts: [{ text }] }); },
+      pushAssistant(convo, raw) { convo.push(raw); },
+      pushToolResults(convo, results) {
+        convo.push({
+          role: 'user',
+          parts: results.map(r => ({ functionResponse: { name: r.name, response: r.result } }))
+        });
+      },
+
+      buildBody(model, convo, systemPrompt) {
+        return {
+          systemInstruction: { parts: [{ text: systemPrompt }] },
+          contents: convo,
+          tools: [{ functionDeclarations }],
+          toolConfig: { functionCallingConfig: { mode: 'AUTO' } },
+          generationConfig: { temperature: 0.4, maxOutputTokens: 2048 }
+        };
+      },
+
+      parse(json) {
+        const candidate = json.candidates && json.candidates[0];
+        if (!candidate) {
+          const blocked = json.promptFeedback && json.promptFeedback.blockReason;
+          throw new Error(blocked ? `Gemini blocked the request (${blocked}).` : 'Gemini returned no candidates.');
+        }
+        const parts = (candidate.content && candidate.content.parts) || [];
+        return {
+          raw: candidate.content,
+          text: parts.filter(p => p.text).map(p => p.text).join('').trim(),
+          // Gemini has no call ids; the index keeps them distinct for the log.
+          calls: parts.filter(p => p.functionCall).map((p, i) => ({
+            id: `${p.functionCall.name}#${i}`,
+            name: p.functionCall.name,
+            args: p.functionCall.args || {}
+          }))
+        };
+      },
+
+      async send(model, convo, systemPrompt, key) {
+        const url = `${this.base}/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`;
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(this.buildBody(model, convo, systemPrompt))
+        });
+        if (!res.ok) return classifyHttpError(this.label, res.status, await readErrorDetail(res));
+        return this.parse(await res.json());
+      },
+
+      async discover(key) {
+        const res = await fetch(`${this.base}?key=${encodeURIComponent(key)}&pageSize=1000`);
+        if (!res.ok) return { ok: false, status: res.status, detail: await readErrorDetail(res) };
+        const json = await res.json();
+        const names = (json.models || [])
+          .filter(m => (m.supportedGenerationMethods || []).includes('generateContent'))
+          .map(m => String(m.name).replace(/^models\//, ''));
+        return { ok: true, models: rankBy(names, this.rankKey) };
+      },
+
+      rankKey(n) {
+        const v = n.match(/gemini-(\d+(?:\.\d+)?)/);
+        return [
+          /-latest$/.test(n) ? 0 : 1,
+          /lite/.test(n) ? 1 : 0,
+          /flash/.test(n) ? 0 : 1,
+          /preview|exp|thinking|tts|image|robotics|computer-use|customtools|embedding|aqa/.test(n) ? 1 : 0,
+          -(v ? parseFloat(v[1]) : 0)
+        ];
+      }
+    },
+
+    openai: {
+      id: 'openai',
+      label: 'OpenAI',
+      base: 'https://api.openai.com/v1',
+      defaultModel: 'gpt-5.1',
+      fallbacks: ['gpt-5.1', 'gpt-5', 'gpt-4.1', 'gpt-4o'],
+      keyUrl: 'platform.openai.com/api-keys',
+
+      newConvo: () => [],
+      pushUser(convo, text) { convo.push({ role: 'user', content: text }); },
+      pushAssistant(convo, raw) { convo.push(raw); },
+      pushToolResults(convo, results) {
+        // One message per call, each tagged with the id it answers.
+        results.forEach(r => convo.push({
+          role: 'tool',
+          tool_call_id: r.id,
+          content: JSON.stringify(r.result)
+        }));
+      },
+
+      buildBody(model, convo, systemPrompt) {
+        // No temperature and no token cap on purpose: the GPT-5 family rejects
+        // a non-default temperature on this endpoint and renamed max_tokens to
+        // max_completion_tokens, so sending either breaks the newest models.
+        return {
+          model,
+          messages: [{ role: 'system', content: systemPrompt }, ...convo],
+          tools: openAiTools(),
+          tool_choice: 'auto'
+        };
+      },
+
+      parse(json) {
+        const msg = json.choices && json.choices[0] && json.choices[0].message;
+        if (!msg) throw new Error('OpenAI returned no message.');
+        return {
+          raw: msg,
+          text: (msg.content || '').trim(),
+          calls: (msg.tool_calls || [])
+            .filter(tc => tc.function && tc.function.name)
+            .map(tc => ({ id: tc.id, name: tc.function.name, args: parseToolArgs(tc.function.arguments) }))
+        };
+      },
+
+      async send(model, convo, systemPrompt, key) {
+        const res = await fetch(`${this.base}/chat/completions`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
+          body: JSON.stringify(this.buildBody(model, convo, systemPrompt))
+        });
+        if (!res.ok) return classifyHttpError(this.label, res.status, await readErrorDetail(res));
+        return this.parse(await res.json());
+      },
+
+      async discover(key) {
+        const res = await fetch(`${this.base}/models`, { headers: { 'Authorization': `Bearer ${key}` } });
+        if (!res.ok) return { ok: false, status: res.status, detail: await readErrorDetail(res) };
+        const json = await res.json();
+        const skip = /embedding|whisper|tts|dall-e|audio|realtime|image|moderation|transcribe|search|instruct|davinci|babbage|codex/i;
+        const names = (json.data || [])
+          .map(m => String(m.id))
+          .filter(id => /^(gpt-|o\d)/.test(id) && !skip.test(id));
+        return { ok: true, models: rankBy(names, this.rankKey) };
+      },
+
+      rankKey(n) {
+        const v = n.match(/^(?:gpt|o)-?(\d+(?:\.\d+)?)/);
+        return [
+          /^gpt-/.test(n) ? 0 : 1,
+          /mini|nano/.test(n) ? 1 : 0,
+          /preview|\d{4}-\d{2}-\d{2}/.test(n) ? 1 : 0,   // prefer the rolling alias over dated snapshots
+          -(v ? parseFloat(v[1]) : 0)
+        ];
+      }
+    },
+
+    anthropic: {
+      id: 'anthropic',
+      label: 'Anthropic',
+      base: 'https://api.anthropic.com/v1',
+      defaultModel: 'claude-sonnet-5',
+      fallbacks: ['claude-sonnet-5', 'claude-opus-5', 'claude-haiku-4-5-20251001'],
+      keyUrl: 'console.anthropic.com/settings/keys',
+
+      // anthropic-dangerous-direct-browser-access opts this page into
+      // Anthropic's CORS allowance; without it the browser blocks the call
+      // before it ever leaves the tab.
+      headers(key) {
+        return {
+          'Content-Type': 'application/json',
+          'x-api-key': key,
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true'
+        };
+      },
+
+      newConvo: () => [],
+      pushUser(convo, text) { convo.push({ role: 'user', content: text }); },
+      pushAssistant(convo, raw) { convo.push(raw); },
+      pushToolResults(convo, results) {
+        // All results ride in one user turn, each block naming its tool_use id.
+        convo.push({
+          role: 'user',
+          content: results.map(r => ({
+            type: 'tool_result',
+            tool_use_id: r.id,
+            content: JSON.stringify(r.result)
+          }))
+        });
+      },
+
+      buildBody(model, convo, systemPrompt) {
+        return {
+          model,
+          max_tokens: 2048,
+          temperature: 0.4,
+          system: systemPrompt,
+          messages: convo,
+          tools: anthropicTools()
+        };
+      },
+
+      parse(json) {
+        const blocks = Array.isArray(json.content) ? json.content : [];
+        return {
+          raw: { role: 'assistant', content: blocks },
+          text: blocks.filter(b => b.type === 'text').map(b => b.text).join('').trim(),
+          calls: blocks.filter(b => b.type === 'tool_use')
+            .map(b => ({ id: b.id, name: b.name, args: b.input || {} }))
+        };
+      },
+
+      async send(model, convo, systemPrompt, key) {
+        const res = await fetch(`${this.base}/messages`, {
+          method: 'POST',
+          headers: this.headers(key),
+          body: JSON.stringify(this.buildBody(model, convo, systemPrompt))
+        });
+        if (!res.ok) return classifyHttpError(this.label, res.status, await readErrorDetail(res));
+        return this.parse(await res.json());
+      },
+
+      async discover(key) {
+        const res = await fetch(`${this.base}/models?limit=100`, { headers: this.headers(key) });
+        if (!res.ok) return { ok: false, status: res.status, detail: await readErrorDetail(res) };
+        const json = await res.json();
+        const names = (json.data || []).map(m => String(m.id)).filter(id => /^claude-/.test(id));
+        return { ok: true, models: rankBy(names, this.rankKey) };
+      },
+
+      rankKey(n) {
+        // Newer ids read "claude-sonnet-5"; Claude 3.x read "claude-3-5-sonnet".
+        const v = n.match(/(?:opus|sonnet|haiku)-(\d+)(?:[-.](\d+))?/) ||
+                  n.match(/claude-(\d+)(?:[-.](\d+))?-(?:opus|sonnet|haiku)/);
+        const version = v ? Number(v[1]) + (v[2] ? Number(v[2]) / 10 : 0) : 0;
+        return [
+          /sonnet/.test(n) ? 0 : /opus/.test(n) ? 1 : /haiku/.test(n) ? 2 : 3,
+          /\d{8}$/.test(n) ? 1 : 0,   // prefer the stable alias over a dated snapshot
+          -version
+        ];
+      }
+    }
+  };
+
+  // ─────────────────────────────────────────────
+  // MODEL CALL — configured model, then fallbacks, then whatever the key has
+  // ─────────────────────────────────────────────
+  async function callModel(convo, systemPrompt) {
+    const p = PROVIDERS[activeProvider];
+    const { key, model } = creds[activeProvider];
     const tried = [];
     const failures = [];
 
@@ -590,64 +886,65 @@
     // to "fix" a Settings value that was never wrong.
     const allBusy = () => failures.length > 0 && failures.every(f => f.skip === 'overloaded');
     const busyError = () => new Error(
-      `Every Gemini model tried is overloaded right now (${failures.map(f => f.model).join(', ')}). ` +
+      `Every ${p.label} model tried is overloaded right now (${failures.map(f => f.model).join(', ')}). ` +
       'That is temporary and nothing is wrong with your key or settings — wait a moment and ' +
-      'press “Plan my day” again. Your chores and today\'s plan were left untouched.'
+      'try again. Your chores and today\'s plan were left untouched.'
     );
 
     const runChain = async (models) => {
-      for (const model of models) {
-        if (tried.includes(model)) continue;
-        tried.push(model);
-        const r = await attemptModel(model, contents, systemPrompt);
-        if (r.candidate) {
-          if (resolvedModel !== model) {
-            if (tried.length > 1) logNote(`Using Gemini model “${model}”.`);
-            resolvedModel = model;
+      for (const m of models) {
+        if (!m || tried.includes(m)) continue;
+        tried.push(m);
+        const turn = await p.send(m, convo, systemPrompt, key);
+        if (!turn.skip) {
+          if (resolvedModel[p.id] !== m) {
+            if (tried.length > 1) logNote(`Using ${p.label} model “${m}”.`);
+            resolvedModel[p.id] = m;
           }
-          noteDraftModel(model);
-          return r.candidate;
+          noteDraftModel(m);
+          return turn;
         }
-        failures.push({ model, skip: r.skip, status: r.status });
+        failures.push({ model: m, skip: turn.skip, status: turn.status });
         // Say so out loud: a silent fallback is what made a 503 confusing.
-        if (r.skip === 'overloaded') {
-          logNote(`“${model}” is overloaded (HTTP ${r.status}) — trying the next model.`);
+        if (turn.skip === 'overloaded') {
+          logNote(`“${m}” is overloaded (HTTP ${turn.status}) — trying the next model.`);
         }
       }
       return null;
     };
 
-    if (resolvedModel) {
-      const c = await runChain([resolvedModel]);
-      if (c) return c;
-      resolvedModel = null;
+    if (resolvedModel[p.id]) {
+      const t = await runChain([resolvedModel[p.id]]);
+      if (t) return t;
+      resolvedModel[p.id] = null;
     }
 
-    let c = await runChain(modelCandidates());
-    if (c) return c;
+    const configured = [model, ...p.fallbacks].filter((m, i, a) => m && a.indexOf(m) === i);
+    let turn = await runChain(configured);
+    if (turn) return turn;
 
-    // Skip the ListModels sweep when everything was merely busy: the models it
+    // Skip the model-list sweep when everything was merely busy: the models it
     // returns would be just as overloaded, so it is a wasted round trip.
     if (allBusy()) throw busyError();
 
-    const disc = await discoverModels();
+    const disc = await p.discover(key);
     if (!disc.ok) {
-      if (disc.status === 400 && /API key/i.test(disc.detail)) {
-        throw new Error('Gemini rejected the API key. Check it in Settings.');
+      if (disc.status === 401 || /api[ _-]?key/i.test(disc.detail || '')) {
+        throw new Error(`${p.label} rejected the API key. Check it in Settings.`);
       }
-      throw new Error(`No configured Gemini model worked, and the available-model list couldn't be read (HTTP ${disc.status}${disc.detail ? `: ${disc.detail}` : ''}).`);
+      throw new Error(`No configured ${p.label} model worked, and the available-model list couldn't be read (HTTP ${disc.status}${disc.detail ? `: ${disc.detail}` : ''}).`);
     }
     if (disc.models.length) logNote(`Configured models unavailable — checking ${disc.models.length} model(s) your key supports.`);
-    c = await runChain(disc.models);
-    if (c) return c;
+    turn = await runChain(disc.models);
+    if (turn) return turn;
 
     if (allBusy()) throw busyError();
 
     throw new Error(
-      `No available Gemini model. Tried ${tried.join(', ') || '(none)'}. ` +
+      `No available ${p.label} model. Tried ${tried.join(', ') || '(none)'}. ` +
       (disc.models.length
-        ? `Your key's generateContent models are: ${disc.models.join(', ')}. Set one of these in Settings.`
-        : 'ListModels returned no generateContent models — the key may be invalid or the Generative Language API not enabled for it.')
+        ? `Your key can use: ${disc.models.slice(0, 12).join(', ')}. Set one of these in Settings.`
+        : 'The provider listed no usable models — the key may be invalid or have no model access.')
     );
   }
 
@@ -656,8 +953,9 @@
   // ─────────────────────────────────────────────
   async function runAgent(userMessage) {
     if (running) return;
-    if (!GEMINI_KEY) {
-      logError('No Gemini API key yet — add one in Settings. A free key comes from aistudio.google.com/apikey.');
+    const p = PROVIDERS[activeProvider];
+    if (!creds[activeProvider].key) {
+      logError(`No ${p.label} API key yet — add one in Settings (${p.keyUrl}).`);
       return;
     }
 
@@ -666,26 +964,24 @@
     logUser(userMessage);
 
     const systemPrompt = buildSystemPrompt();
-    const contents = [{ role: 'user', parts: [{ text: userMessage }] }];
+    const convo = p.newConvo();
+    p.pushUser(convo, userMessage);
     let mutated = false;
 
     try {
       for (let step = 0; step < MAX_STEPS; step++) {
-        const candidate = await callGemini(contents, systemPrompt);
-        const parts = (candidate.content && candidate.content.parts) || [];
-        const calls = parts.filter(p => p.functionCall).map(p => p.functionCall);
-        const text = parts.filter(p => p.text).map(p => p.text).join('').trim();
+        const turn = await callModel(convo, systemPrompt);
 
-        if (!calls.length) {
-          if (text) logAnswer(text);
-          else logError('Gemini finished without saying anything. Try rephrasing.');
+        if (!turn.calls.length) {
+          if (turn.text) logAnswer(turn.text);
+          else logError(`${p.label} finished without saying anything. Try rephrasing.`);
           return;
         }
 
-        contents.push(candidate.content);
+        p.pushAssistant(convo, turn.raw);
 
-        const responseParts = [];
-        for (const call of calls) {
+        const results = [];
+        for (const call of turn.calls) {
           const impl = tools[call.name];
           let result;
           if (!impl) {
@@ -699,10 +995,10 @@
           }
           if (impl && call.name !== 'list_chores') mutated = true;
           logTool(call.name, call.args || {}, result);
-          responseParts.push({ functionResponse: { name: call.name, response: result } });
+          results.push({ id: call.id, name: call.name, result });
         }
 
-        contents.push({ role: 'user', parts: responseParts });
+        p.pushToolResults(convo, results);
       }
 
       logError(`Stopped after ${MAX_STEPS} tool rounds without a final answer. Any changes already made have been kept.`);
@@ -846,7 +1142,7 @@
     if (lastDraftModel) {
       el.textContent = `via ${lastDraftModel}`;
       el.classList.add('model-tag');
-      el.title = `Last draft was generated by Gemini model “${lastDraftModel}”.`;
+      el.title = `Last draft was generated by the ${PROVIDERS[activeProvider].label} model “${lastDraftModel}”.`;
     } else {
       el.textContent = '';
       el.classList.remove('model-tag');
@@ -872,17 +1168,14 @@
   }
 
   function planMyDay() {
-    const wake = document.getElementById('agent-wake-time').value || currentTimeHHMM();
-    const end = document.getElementById('agent-end-time').value;
-    const cushion = document.getElementById('agent-cushion').value;
-    const load = document.getElementById('agent-load').value;
-
-    const parts = [`Plan my day. I'm starting at ${wake}.`];
-    if (end) parts.push(`I want to be winding down by ${end}.`);
-    parts.push(`Use a cushion of about ${cushion} minutes between tasks and a load cap of ${load}%.`);
-    parts.push('Pick a balanced subset of my incomplete non-daily chores, build the schedule with build_day_schedule, then show me the chronological result and tell me what you left for another day.');
-
-    runAgent(parts.join(' '));
+    // The window itself already reaches the model through the system prompt;
+    // restating it here is purely so the transcript reads as a real request.
+    const day = readDayControls();
+    runAgent(
+      `Plan my day — I'm starting at ${day.start} and winding down by ${day.end}. ` +
+      'Pick a balanced subset of my incomplete non-daily chores, build the schedule with build_day_schedule, ' +
+      'then show me the chronological result and tell me what you left for another day.'
+    );
   }
 
   function askFreeform() {
@@ -922,21 +1215,76 @@
     }
   }
 
-  function setCredentials(key, model) {
-    GEMINI_KEY = key || '';
-    GEMINI_MODEL = model || DEFAULT_MODEL;
-    resolvedModel = null;
-    localStorage.setItem('geminiKey', GEMINI_KEY);
-    localStorage.setItem('geminiModel', GEMINI_MODEL);
+  // ─────────────────────────────────────────────
+  // CREDENTIALS
+  // ─────────────────────────────────────────────
+  function loadCredentials() {
+    const stored = localStorage.getItem(STORAGE.provider);
+    activeProvider = PROVIDER_IDS.includes(stored) ? stored : DEFAULT_PROVIDER;
+    PROVIDER_IDS.forEach(id => {
+      creds[id] = {
+        key: localStorage.getItem(STORAGE[id].key) || '',
+        model: localStorage.getItem(STORAGE[id].model) || PROVIDERS[id].defaultModel
+      };
+      resolvedModel[id] = null;
+    });
   }
+
+  /**
+   * Persist the settings modal's state.
+   * @param {{provider?: string, gemini?: {key,model}, openai?: {…}, anthropic?: {…}}} config
+   */
+  function setCredentials(config) {
+    const c = config || {};
+    if (PROVIDER_IDS.includes(c.provider) && c.provider !== activeProvider) {
+      activeProvider = c.provider;
+      localStorage.setItem(STORAGE.provider, activeProvider);
+      // The label describes a draft from the provider we just left, so it would
+      // otherwise read "via gemini-flash-latest" with OpenAI selected.
+      lastDraftModel = '';
+      localStorage.removeItem('lastPlannerModel');
+      renderStatus();
+    }
+    PROVIDER_IDS.forEach(id => {
+      if (!c[id]) return;
+      const key = (c[id].key || '').trim();
+      const model = (c[id].model || '').trim() || PROVIDERS[id].defaultModel;
+      // A changed model invalidates whichever id last answered for this provider.
+      if (creds[id].model !== model || creds[id].key !== key) resolvedModel[id] = null;
+      creds[id] = { key, model };
+      localStorage.setItem(STORAGE[id].key, key);
+      localStorage.setItem(STORAGE[id].model, model);
+    });
+  }
+
+  // Snapshot for the settings modal to render from.
+  function getConfig() {
+    const out = { provider: activeProvider, providers: {} };
+    PROVIDER_IDS.forEach(id => {
+      out.providers[id] = {
+        label: PROVIDERS[id].label,
+        key: creds[id].key,
+        model: creds[id].model,
+        defaultModel: PROVIDERS[id].defaultModel,
+        keyUrl: PROVIDERS[id].keyUrl
+      };
+    });
+    return out;
+  }
+
+  loadCredentials();
 
   window.ChoreAgent = {
     init,
     setCredentials,
+    getConfig,
     run: runAgent,
-    getModel: () => GEMINI_MODEL,          // what is configured
-    getDraftModel: () => lastDraftModel,   // what actually produced the last draft
-    getKey: () => GEMINI_KEY,
-    defaultModel: DEFAULT_MODEL
+    providerIds: PROVIDER_IDS,
+    getProvider: () => activeProvider,
+    getModel: () => creds[activeProvider].model,        // what is configured
+    getDraftModel: () => lastDraftModel,                // what produced the last draft
+    getKey: () => creds[activeProvider].key,
+    // Test seam: exposes the pure pieces without needing a network or a DOM.
+    _internals: { PROVIDERS, toJsonSchema, classifyHttpError, rankBy, parseToolArgs, functionDeclarations, buildSystemPrompt, readDayControls }
   };
 })();
